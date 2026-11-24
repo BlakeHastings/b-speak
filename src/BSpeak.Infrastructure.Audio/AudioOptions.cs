@@ -33,7 +33,7 @@ public sealed class AudioOptions
     public int MinSpeechMs { get; set; } = 300;
 
     /// <summary>Silence that ends your turn. Pauses shorter than this stay in the same utterance.</summary>
-    public int EndOfTurnSilenceMs { get; set; } = 900;
+    public int EndOfTurnSilenceMs { get; set; } = 750;
 
     /// <summary>Audio kept from just before speech onset, so the first syllable is not clipped.</summary>
     public int PreRollMs { get; set; } = 250;

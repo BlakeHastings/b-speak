@@ -28,7 +28,7 @@ public static class SelfTest
         var http = new HttpClient { Timeout = TimeSpan.FromSeconds(60) };
         var clock = Stopwatch.StartNew();
         ITextToSpeech tts = config.Tts.Provider.Equals("openai", StringComparison.OrdinalIgnoreCase)
-            ? new OpenAiTextToSpeech(config.Tts, http) : new KokoroTextToSpeech(store.KokoroPath, config.Tts.Speed);
+            ? new OpenAiTextToSpeech(config.Tts, http) : new KokoroTextToSpeech(store.KokoroPath, config.Tts.Speed, config.Tts.Device);
         ISpeechToText stt = config.Stt.Provider.Equals("openai", StringComparison.OrdinalIgnoreCase)
             ? new OpenAiSpeechToText(config.Stt, http) : new WhisperSpeechToText(store.WhisperPath, config.Stt.Language);
         var vad = new SileroVad(store.SileroPath);
@@ -37,7 +37,13 @@ public static class SelfTest
         clock.Restart();
         var voice = config.Tts.EffectiveVoices[0];
         var speech = await tts.SynthesizeAsync(Sentence, voice);
+        var firstTtsMs = clock.ElapsedMilliseconds;
+        clock.Restart();
+        speech = await tts.SynthesizeAsync(Sentence, voice); // warm: what each sentence costs in a conversation
         var ttsMs = clock.ElapsedMilliseconds;
+        clock.Restart();
+        await tts.SynthesizeAsync("Sure.", voice);
+        var shortTtsMs = clock.ElapsedMilliseconds;
 
         var audio16k = Resampling.Resample(speech, tts.SampleRate, 16_000);
         var padded = new float[16_000].Concat(audio16k).Concat(new float[32_000]).ToArray();
@@ -81,8 +87,10 @@ public static class SelfTest
             speechSeconds = Math.Round(speech.Length / (double)tts.SampleRate, 2),
             voiceDetected = onset,
             turnDetected = committed is not null,
-            loadMs, ttsMs, firstSttMs, sttMs,
+            loadMs, firstTtsMs, ttsMs, shortTtsMs, firstSttMs, sttMs,
             whisperRuntime = stt is WhisperSpeechToText ? WhisperSpeechToText.Runtime : null,
+            ttsDevice = tts is KokoroTextToSpeech k ? k.Device : null,
+            ttsGpuError = tts is KokoroTextToSpeech k2 ? k2.GpuError : null,
             played = play,
         }));
         return onset && committed is not null && match ? ExitCodes.Ok : ExitCodes.Rule;

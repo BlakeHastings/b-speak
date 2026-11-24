@@ -62,6 +62,23 @@ public sealed class EndpointerTests
     }
 }
 
+public sealed class FirstAudioChunkTests
+{
+    [Fact]
+    public void Short_sentences_stay_whole() =>
+        Assert.Equal(["Tests pass. Want the PR?"], AudioPlayback.FirstAudioChunks("Tests pass. Want the PR?"));
+
+    [Fact]
+    public void Long_sentences_split_at_the_first_natural_pause() =>
+        Assert.Equal(
+            ["Okay, I looked into it,", "and the flaky test is racing the session refresh on login."],
+            AudioPlayback.FirstAudioChunks("Okay, I looked into it, and the flaky test is racing the session refresh on login."));
+
+    [Fact]
+    public void Numbers_with_commas_do_not_split() =>
+        Assert.Single(AudioPlayback.FirstAudioChunks("There are 1,250 rows in the table that need a migration before we can ship this."));
+}
+
 public sealed class TranscriptCleanerTests
 {
     [Theory]

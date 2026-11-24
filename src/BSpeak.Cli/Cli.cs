@@ -90,6 +90,13 @@ public static class Cli
           utterance list --as <name> [--after <id>] [--for-you] [--wait] [--timeout <seconds>]
                                                            What the user said after utterance <id>; --wait blocks until they speak
           utterance post "<text>"                          Type as if you had said it (testing, or no mic)
+          inbox list --as <name> [--after <seq>] [--wait]  Voice agent's wait: utterances, handoff updates, interruptions. Pass "next" back as --after
+          handoff post "<task>" --as <name> [--utterance <id>]
+                                                           Voice agent passes work to the orchestrator
+          handoff list [--status open|working|done|failed] [--wait]
+                                                           Orchestrator's wait: --wait blocks until a handoff is open
+          handoff get <id>
+          handoff patch <id> --status working|done|failed [--note "<spoken result>"] [--by <who>]
           speech post "<text>" --as <name> [--reply-to <id>] [--wait] [--timeout <seconds>]
                                                            Say something; --wait blocks until it played or was interrupted
           speech get <id> [--wait]
@@ -154,6 +161,12 @@ public static class Cli
             ("listening", "put") => await client.SendAsync(HttpMethod.Put, "/api/listening", new { on = OnOff(args.Require(2, "on or off")), @as = args.Get("as") }),
             ("listening", "patch") => await client.SendAsync(HttpMethod.Patch, "/api/listening", new { mode = args.Get("mode") ?? throw new UsageException("--mode is required."), wakeWord = args.Get("wake-word") }),
             ("event", "list") => await EventsAsync(client, args),
+            ("inbox", "list") => await InboxAsync(client, args),
+            ("handoff", "post") => await client.SendAsync(HttpMethod.Post, "/api/handoffs", new { @as = args.As, text = args.Require(2, "what needs doing, in quotes"), utteranceId = args.Int("utterance") }),
+            ("handoff", "list") => await HandoffsAsync(client, args),
+            ("handoff", "get") => await client.SendAsync(HttpMethod.Get, $"/api/handoffs/{Uri.EscapeDataString(args.Require(2, "handoff id"))}"),
+            ("handoff", "patch") => await client.SendAsync(HttpMethod.Patch, $"/api/handoffs/{Uri.EscapeDataString(args.Require(2, "handoff id"))}",
+                new { status = args.Get("status") ?? throw new UsageException("--status working|done|failed is required."), note = args.Get("note"), by = args.Get("by") }),
             ("host", "get") => await client.SendAsync(HttpMethod.Get, "/api/host"),
             _ => throw new UsageException($"Unknown command '{resource} {verb}'."),
         };
@@ -214,6 +227,38 @@ public static class Cli
             if (DateTime.UtcNow >= deadline) { client.Print(status, body ?? "{}"); return ExitCodes.TimedOut; }
             (status, body) = await client.RawAsync(HttpMethod.Get, $"/api/speech/{Uri.EscapeDataString(id)}?wait={HostApp.MaxWait.TotalSeconds}");
             if (status != HttpStatusCode.OK) return client.Print(status, body);
+        }
+    }
+
+    private static async Task<int> InboxAsync(HostClient client, Args args)
+    {
+        var who = args.As;
+        var after = args.Get("after") is { } a ? long.TryParse(a, out var n) ? n : throw new UsageException("--after must be a number.") : 0;
+        if (!args.Has("wait")) return await client.SendAsync(HttpMethod.Get, $"/api/inbox{Query(("as", who), ("after", after))}");
+        var deadline = DateTime.UtcNow.AddSeconds(args.Int("timeout") ?? 1800);
+        while (true)
+        {
+            var remaining = Math.Max(1, (deadline - DateTime.UtcNow).TotalSeconds);
+            var (status, body) = await client.RawAsync(HttpMethod.Get, $"/api/inbox{Query(("as", who), ("after", after), ("wait", Math.Min(remaining, HostApp.MaxWait.TotalSeconds)))}");
+            if (status != HttpStatusCode.OK) return client.Print(status, body);
+            var batch = JsonNode.Parse(body)!;
+            if (batch["items"]!.AsArray().Count > 0) return client.Print(status, body);
+            after = batch["next"]!.GetValue<long>();
+            if (DateTime.UtcNow >= deadline) { client.Print(status, body); return ExitCodes.TimedOut; }
+        }
+    }
+
+    private static async Task<int> HandoffsAsync(HostClient client, Args args)
+    {
+        var status = args.Get("status");
+        if (!args.Has("wait")) return await client.SendAsync(HttpMethod.Get, $"/api/handoffs{Query(("status", status))}");
+        var deadline = DateTime.UtcNow.AddSeconds(args.Int("timeout") ?? 1800);
+        while (true)
+        {
+            var remaining = Math.Max(1, (deadline - DateTime.UtcNow).TotalSeconds);
+            var (code, body) = await client.RawAsync(HttpMethod.Get, $"/api/handoffs{Query(("status", "open"), ("wait", Math.Min(remaining, HostApp.MaxWait.TotalSeconds)))}");
+            if (code != HttpStatusCode.OK || JsonNode.Parse(body)!.AsArray().Count > 0) return client.Print(code, body);
+            if (DateTime.UtcNow >= deadline) { client.Print(code, body); return ExitCodes.TimedOut; }
         }
     }
 

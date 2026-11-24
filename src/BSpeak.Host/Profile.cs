@@ -58,17 +58,30 @@ public static class Profile
     public static string LogPath => Path.Combine(Home, "host.log");
     public static string ModelsDir => Path.Combine(Home, "models");
 
-    /// <summary>Loads config.json, writing the defaults there first if it does not exist yet.</summary>
+    /// <summary>
+    /// The file written on first run. It sets nothing, so every setting keeps tracking the built-in default
+    /// until you choose to override it; the comments show the settings people usually change.
+    /// </summary>
+    public const string StarterConfig = """
+        // b-speak settings. Anything you leave out uses the built-in default.
+        // Restart the host after editing: bspeak host delete (the next command starts it again).
+        // All settings: bspeak config get
+        {
+          // "audio": { "inputDevice": "default", "outputDevice": "default", "endOfTurnSilenceMs": 750 },
+          // "stt": { "provider": "whisper", "model": "small.en" },
+          // "tts": { "provider": "kokoro", "speed": 1.1, "voices": ["am_michael", "af_heart"] },
+          // Remote engines: "tts": { "provider": "openai", "endpoint": "http://localhost:8880/v1", "remoteModel": "tts-1" }
+        }
+        """;
+
+    private static readonly JsonSerializerOptions ReadOptions = new(Json) { ReadCommentHandling = JsonCommentHandling.Skip, AllowTrailingCommas = true };
+
+    /// <summary>Loads config.json, writing the starter file there first if it does not exist yet.</summary>
     public static BSpeakConfig LoadConfig()
     {
         Directory.CreateDirectory(Home);
-        if (!File.Exists(ConfigPath))
-        {
-            var defaults = new BSpeakConfig();
-            File.WriteAllText(ConfigPath, JsonSerializer.Serialize(defaults, Json));
-            return defaults;
-        }
-        return JsonSerializer.Deserialize<BSpeakConfig>(File.ReadAllText(ConfigPath), Json) ?? new BSpeakConfig();
+        if (!File.Exists(ConfigPath)) File.WriteAllText(ConfigPath, StarterConfig);
+        return JsonSerializer.Deserialize<BSpeakConfig>(File.ReadAllText(ConfigPath), ReadOptions) ?? new BSpeakConfig();
     }
 
     public static HostInfo? ReadHostInfo()

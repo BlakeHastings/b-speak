@@ -48,7 +48,7 @@ public sealed class AudioRuntime(BSpeakConfig config, RoomService room, Playback
                 : new WhisperSpeechToText(store.WhisperPath, config.Stt.Language);
             ITextToSpeech tts = config.Tts.Provider.Equals("openai", StringComparison.OrdinalIgnoreCase)
                 ? new OpenAiTextToSpeech(config.Tts, http)
-                : new KokoroTextToSpeech(store.KokoroPath, config.Tts.Speed);
+                : new KokoroTextToSpeech(store.KokoroPath, config.Tts.Speed, config.Tts.Device);
             await WarmUpAsync(stt, tts, ct);
             if (stt is WhisperSpeechToText) logger.LogInformation("[stt] whisper {Model} on {Runtime}", config.Stt.Model, WhisperSpeechToText.Runtime);
 

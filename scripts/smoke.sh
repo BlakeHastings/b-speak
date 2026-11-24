@@ -38,6 +38,17 @@ grep -q '"state": "finished"' "$BSPEAK_HOME/speech.json"; check 0 $? "the speech
 "$B" listening get | grep -q '"listening": true'; check 0 $? "saying start listening resumes"
 
 "$B" utterance list --as Nova --after 2 --wait --timeout 2 > /dev/null; check 3 $? "a wait with nothing new times out with exit 3"
+
+# Two tiers: the voice agent hands off, the orchestrator works, the result lands in the voice agent's inbox.
+next=$("$B" inbox list --as Atlas | grep -o '"next": [0-9]*' | grep -o '[0-9]*$')
+"$B" handoff post "Fix the flaky login test." --as Atlas --utterance 2 > /dev/null; check 0 $? "voice agent posts a handoff"
+"$B" handoff list --wait --timeout 5 | grep -q '"id": "h1"'; check 0 $? "orchestrator's wait sees the open handoff"
+"$B" handoff patch h1 --status working > /dev/null; check 0 $? "orchestrator claims it"
+"$B" handoff patch h1 --status done > /dev/null; check 1 $? "closing without a spoken result is refused"
+"$B" inbox list --as Atlas --after "$next" --wait --timeout 5 > "$BSPEAK_HOME/inbox.json" & inboxer=$!
+"$B" handoff patch h1 --status done --note "Fixed. It was racing the session refresh." > /dev/null
+wait $inboxer; check 0 $? "voice agent's inbox wakes on handoff updates"
+grep -q '"kind": "handoff"' "$BSPEAK_HOME/inbox.json"; check 0 $? "the inbox item is the handoff"
 "$B" brief get --as Atlas | grep -q "You: Atlas"; check 0 $? "brief shows who you are"
 "$B" host delete > /dev/null; check 0 $? "stop the host"
 rm -rf "$BSPEAK_HOME"

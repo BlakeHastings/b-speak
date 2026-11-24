@@ -18,6 +18,8 @@ public sealed record JoinRequest(string? Name);
 public sealed record UtteranceRequest(string Text);
 public sealed record SpeechRequest(string As, string Text, int? ReplyTo);
 public sealed record ListeningRequest(bool On, string? As);
+public sealed record HandoffRequest(string As, string Text, int? UtteranceId);
+public sealed record HandoffPatch(HandoffStatus Status, string? Note, string? By);
 public sealed record ModeRequest(ListeningMode Mode, string? WakeWord);
 public sealed record ErrorBody(string Code, string Message);
 public sealed record EventView(long Seq, DateTimeOffset At, string Type, string Stream, JsonElement Data);
@@ -147,6 +149,24 @@ public static class HostApp
         api.MapGet("/speech/{id}", async (string id, double? wait, HttpContext ctx) =>
             wait is > 0 ? await room.WaitForSpeechAsync(id, Clamp(wait.Value), ctx.RequestAborted) ?? room.GetSpeech(id) : room.GetSpeech(id));
         api.MapDelete("/speech/{id}", (string id, string @as) => { room.WithdrawSpeech(@as, id); return room.GetSpeech(id); });
+
+        api.MapGet("/inbox", async (string @as, long? after, double? wait, HttpContext ctx) =>
+            wait is > 0
+                ? await room.WaitForInboxAsync(@as, after ?? 0, Clamp(wait.Value), ctx.RequestAborted)
+                : room.Inbox(@as, after ?? 0));
+
+        api.MapPost("/handoffs", (HandoffRequest body) => room.PostHandoff(body.As, body.Text, body.UtteranceId));
+        api.MapGet("/handoffs", async (string? status, double? wait, HttpContext ctx) =>
+        {
+            HandoffStatus? filter = status is null ? null
+                : Enum.TryParse<HandoffStatus>(status, ignoreCase: true, out var s) ? s
+                : throw new BadHttpRequestException("status must be open, working, done or failed.");
+            return wait is > 0 && filter == HandoffStatus.Open
+                ? await room.WaitForOpenHandoffsAsync(Clamp(wait.Value), ctx.RequestAborted)
+                : room.ListHandoffs(filter);
+        });
+        api.MapGet("/handoffs/{id}", (string id) => room.GetHandoff(id));
+        api.MapPatch("/handoffs/{id}", (string id, HandoffPatch body) => room.UpdateHandoff(id, body.By, body.Status, body.Note));
 
         api.MapGet("/listening", () => Listening(room));
         api.MapPut("/listening", (ListeningRequest body) => { room.SetListening(body.On, body.As); return Listening(room); });

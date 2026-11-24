@@ -11,25 +11,55 @@ using KokoroSharp.Utilities;
 namespace BSpeak.Infrastructure.Speech;
 
 /// <summary>
-/// In-process Kokoro (KokoroSharp over ONNX), 24 kHz mono. Uses the WAV synthesizer, which returns audio
-/// without auto-playing it. Calls are serialized: the ONNX session is not assumed reentrant.
+/// In-process Kokoro (KokoroSharp over ONNX), 24 kHz mono. Calls the model directly on our own thread
+/// (KokoroSharp's synthesizer runs inference on a worker thread, where an ONNX error kills the process).
+/// Tries the GPU through DirectML and falls back to the CPU if the first inference fails there.
+/// Calls are serialized: the ONNX session is not assumed reentrant.
 /// </summary>
 public sealed class KokoroTextToSpeech : ITextToSpeech, IDisposable
 {
-    private readonly KokoroWavSynthesizer _synth;
-    private readonly KokoroTTSPipelineConfig _config;
+    private readonly string _modelPath;
+    private readonly float _speed;
     private readonly ConcurrentDictionary<string, KokoroVoice> _voices = new();
     private readonly SemaphoreSlim _gate = new(1, 1);
+    private KokoroModel _model;
+    private bool _verified;
 
     public int SampleRate => 24_000;
 
-    public KokoroTextToSpeech(string modelPath, float speed)
+    /// <summary>"DirectML" when running on the GPU, otherwise "CPU".</summary>
+    public string Device { get; private set; }
+
+    /// <summary>Why the GPU was not used, when it was wanted.</summary>
+    public string? GpuError { get; private set; }
+
+    /// <param name="device">"auto" (GPU through DirectML on Windows, else CPU), "directml", or "cpu".</param>
+    public KokoroTextToSpeech(string modelPath, float speed, string device = "auto")
     {
         if (!File.Exists(modelPath)) throw new FileNotFoundException("Kokoro model is missing. Run: bspeak model pull", modelPath);
+        _modelPath = modelPath;
+        _speed = speed;
         var voicesDir = Path.Combine(AppContext.BaseDirectory, "voices");
         if (Directory.Exists(voicesDir)) KokoroVoiceManager.LoadVoicesFromPath(voicesDir);
-        _synth = new KokoroWavSynthesizer(modelPath, new Microsoft.ML.OnnxRuntime.SessionOptions());
-        _config = new KokoroTTSPipelineConfig { Speed = speed };
+        var espeak = Path.Combine(AppContext.BaseDirectory, "espeak");
+        if (Directory.Exists(espeak) && string.IsNullOrEmpty(Tokenizer.eSpeakNGPath)) Tokenizer.eSpeakNGPath = espeak;
+
+        if (!device.Equals("cpu", StringComparison.OrdinalIgnoreCase) && OperatingSystem.IsWindows())
+        {
+            try
+            {
+                // DirectML works on any DX12 GPU without a CUDA toolkit. It needs memory patterns off and sequential execution.
+                var options = new Microsoft.ML.OnnxRuntime.SessionOptions { EnableMemoryPattern = false, ExecutionMode = Microsoft.ML.OnnxRuntime.ExecutionMode.ORT_SEQUENTIAL };
+                options.AppendExecutionProvider_DML(0);
+                _model = new KokoroModel(modelPath, options);
+                Device = "DirectML";
+                return;
+            }
+            catch (Exception ex) { GpuError = ex.Message; }
+        }
+        _model = new KokoroModel(modelPath, new Microsoft.ML.OnnxRuntime.SessionOptions());
+        Device = "CPU";
+        _verified = true;
     }
 
     public async Task<float[]> SynthesizeAsync(string text, string voice, CancellationToken ct = default)
@@ -38,10 +68,31 @@ public sealed class KokoroTextToSpeech : ITextToSpeech, IDisposable
         try
         {
             var v = _voices.GetOrAdd(voice, ResolveVoice);
-            var wav = await Task.Run(() => _synth.Synthesize(text, v, _config), ct);
-            return WavAudio.Decode(wav).Samples;
+            return await Task.Run(() => Infer(text, v), ct);
         }
         finally { _gate.Release(); }
+    }
+
+    private float[] Infer(string text, KokoroVoice voice)
+    {
+        var tokens = Tokenizer.Tokenize(text, voice.GetLangCode(), preprocess: true);
+        if (tokens.Length > KokoroModel.maxTokens) tokens = tokens[..KokoroModel.maxTokens];
+        try
+        {
+            var audio = _model.Infer(tokens, voice.Features, _speed);
+            _verified = true;
+            return audio;
+        }
+        catch (Exception ex) when (!_verified)
+        {
+            // The GPU session loaded but cannot run this model: switch to the CPU for good.
+            GpuError = ex.Message;
+            _model.Dispose();
+            _model = new KokoroModel(_modelPath, new Microsoft.ML.OnnxRuntime.SessionOptions());
+            Device = "CPU";
+            _verified = true;
+            return _model.Infer(tokens, voice.Features, _speed);
+        }
     }
 
     /// <summary>A bundled voice name, or a weighted blend like "bf_emma(0.4)+af_heart(0.6)". GetVoice alone does not parse blends.</summary>
@@ -63,7 +114,7 @@ public sealed class KokoroTextToSpeech : ITextToSpeech, IDisposable
 
     public void Dispose()
     {
-        _synth.Dispose();
+        _model.Dispose();
         _gate.Dispose();
     }
 }

@@ -3,7 +3,27 @@ using BSpeak.Domain;
 namespace BSpeak.Application;
 
 /// <param name="After">Pass this to the first utterance wait so the new participant does not receive history.</param>
-public sealed record JoinResult(string Name, string Voice, int After);
+/// <param name="InboxAfter">Pass this to the first inbox wait.</param>
+public sealed record JoinResult(string Name, string Voice, int After, long InboxAfter);
+
+public sealed record HandoffView(string Id, string From, string Text, int? UtteranceId, HandoffStatus Status, IReadOnlyList<HandoffNote> Notes);
+
+/// <summary>One thing in a voice agent's inbox. <see cref="Kind"/> is utterance, handoff, speech-interrupted or speech-failed.</summary>
+public sealed record InboxItem(long Seq, string Kind, DateTimeOffset At)
+{
+    public int? UtteranceId { get; init; }
+    public string? Text { get; init; }
+    public string? AddressedTo { get; init; }
+    public string? Focus { get; init; }
+    public bool? ForYou { get; init; }
+    public string? HandoffId { get; init; }
+    public HandoffStatus? Status { get; init; }
+    public string? By { get; init; }
+    public string? SpeechId { get; init; }
+}
+
+/// <param name="Next">Pass back as --after on the next inbox wait.</param>
+public sealed record InboxBatch(IReadOnlyList<InboxItem> Items, long Next, bool TimedOut);
 
 /// <param name="ForYou">Addressed to you, to everyone, or unaddressed while you held focus.</param>
 public sealed record UtteranceView(int Id, string Text, string? AddressedTo, string? Focus, bool ForYou, DateTimeOffset At);

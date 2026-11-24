@@ -21,8 +21,10 @@ public sealed class RoomService
     private readonly IPlayback _playback;
     private readonly Dictionary<string, Speech> _speeches = new(StringComparer.Ordinal);
     private readonly Dictionary<string, int> _openWaits = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, Handoff> _handoffs = new(StringComparer.Ordinal);
     private List<Action> _effects = [];
     private int _speechCounter;
+    private int _handoffCounter;
 
     public RoomService(RoomSettings settings, SpeechRules rules, IClock clock, IEventLog log, IPlayback playback)
     {
@@ -51,8 +53,98 @@ public sealed class RoomService
                 ?? throw new DomainViolation("name-pool-empty", "Every pooled name is taken. Join with --name.");
             p = _room.Join(free, _clock.Now);
         }
-        return new JoinResult(p.Name, p.Voice, _room.UtteranceCount);
+        return new JoinResult(p.Name, p.Voice, _room.UtteranceCount, _log.Head);
     });
+
+    // ================= handoffs (voice agent to orchestrator)
+
+    public HandoffView PostHandoff(string @as, string text, int? utteranceId) => Run(() =>
+    {
+        var p = _room.Touch(@as, _clock.Now);
+        var handoff = Handoff.Post($"h{_handoffCounter + 1}", p.Name, text, utteranceId, _room);
+        _handoffCounter++;
+        _handoffs[handoff.Id] = handoff;
+        return View(handoff);
+    });
+
+    /// <param name="by">Who is updating, for example "orchestrator". Need not be in the room.</param>
+    public HandoffView UpdateHandoff(string id, string? by, HandoffStatus status, string? note) => Run(() =>
+    {
+        var handoff = RequireHandoff(id);
+        handoff.Update(by ?? "orchestrator", status, note);
+        return View(handoff);
+    });
+
+    public HandoffView GetHandoff(string id)
+    {
+        lock (_gate) return View(RequireHandoff(id));
+    }
+
+    public IReadOnlyList<HandoffView> ListHandoffs(HandoffStatus? status = null)
+    {
+        lock (_gate) return _handoffs.Values.Where(h => status is null || h.Status == status).Select(View).ToList();
+    }
+
+    /// <summary>Blocks until at least one handoff is open (unclaimed). Returns them, or an empty list on timeout.</summary>
+    public async Task<IReadOnlyList<HandoffView>> WaitForOpenHandoffsAsync(TimeSpan timeout, CancellationToken ct = default) =>
+        await WaitAsync(() => ListHandoffs(HandoffStatus.Open) is { Count: > 0 } open ? open : null, timeout, ct) ?? [];
+
+    // ================= inbox (everything the voice agent needs to react to)
+
+    /// <summary>
+    /// What happened for this participant after event <paramref name="after"/>: utterances, updates on
+    /// handoffs it posted, and its own speeches being interrupted or failing. Pass <see cref="InboxBatch.Next"/> back as <paramref name="after"/>.
+    /// </summary>
+    public InboxBatch Inbox(string @as, long after)
+    {
+        var name = Run(() => _room.Touch(@as, _clock.Now).Name);
+        return InboxFor(name, after, timedOut: false);
+    }
+
+    public async Task<InboxBatch> WaitForInboxAsync(string @as, long after, TimeSpan timeout, CancellationToken ct = default)
+    {
+        var name = Run(() => _room.Touch(@as, _clock.Now).Name);
+        lock (_gate) _openWaits[name] = _openWaits.GetValueOrDefault(name) + 1;
+        try
+        {
+            var found = await WaitAsync(() => InboxFor(name, after, false) is { Items.Count: > 0 } b ? b : null, timeout, ct);
+            return found ?? InboxFor(name, after, timedOut: true);
+        }
+        finally
+        {
+            lock (_gate)
+            {
+                if (--_openWaits[name] == 0) _openWaits.Remove(name);
+                if (_room.Find(name) is not null) _room.Touch(name, _clock.Now);
+            }
+        }
+    }
+
+    private InboxBatch InboxFor(string name, long after, bool timedOut)
+    {
+        var events = _log.After(after, int.MaxValue);
+        var items = new List<InboxItem>();
+        foreach (var e in events)
+        {
+            switch (e.Event)
+            {
+                case UserSpoke u:
+                    items.Add(new InboxItem(e.Seq, "utterance", e.At) { UtteranceId = u.UtteranceId, Text = u.Text, AddressedTo = u.AddressedTo, Focus = u.Focus, ForYou = IsForYou(u, name) });
+                    break;
+                case HandoffUpdated h when h.From == name:
+                    items.Add(new InboxItem(e.Seq, "handoff", e.At) { HandoffId = h.HandoffId, Status = h.Status, Text = h.Note, By = h.By });
+                    break;
+                case SpeechInterrupted s when s.Participant == name:
+                    items.Add(new InboxItem(e.Seq, "speech-interrupted", e.At) { SpeechId = s.SpeechId, Text = s.HeardText });
+                    break;
+                case SpeechWithdrawn w when w.Participant == name && w.Reason == WithdrawReason.PlaybackFailed:
+                    items.Add(new InboxItem(e.Seq, "speech-failed", e.At) { SpeechId = w.SpeechId });
+                    break;
+            }
+        }
+        var next = events.Count > 0 ? events[^1].Seq : after;
+        return new InboxBatch(items, next, timedOut);
+    }
 
     public void Leave(string name) => Run(() => _room.Leave(name));
 
@@ -267,7 +359,10 @@ public sealed class RoomService
     {
         while (true)
         {
-            var pending = _room.TakeEvents().Concat(_speeches.Values.Where(s => s.PendingEvents.Count > 0).SelectMany(s => s.TakeEvents())).ToList();
+            var pending = _room.TakeEvents()
+                .Concat(_speeches.Values.Where(s => s.PendingEvents.Count > 0).SelectMany(s => s.TakeEvents()))
+                .Concat(_handoffs.Values.Where(h => h.PendingEvents.Count > 0).SelectMany(h => h.TakeEvents()))
+                .ToList();
             if (pending.Count == 0) return;
             foreach (var e in pending)
             {
@@ -306,6 +401,11 @@ public sealed class RoomService
         _speeches.TryGetValue(id, out var s) ? s : throw new NotFoundException("speech-unknown", $"There is no speech {id}.");
 
     private string VoiceOf(string participant) => _room.Find(participant)?.Voice ?? _room.Settings.Voices.FirstOrDefault() ?? "default";
+
+    private Handoff RequireHandoff(string id) =>
+        _handoffs.TryGetValue(id, out var h) ? h : throw new NotFoundException("handoff-unknown", $"There is no handoff {id}.");
+
+    private static HandoffView View(Handoff h) => new(h.Id, h.From, h.Text, h.UtteranceId, h.Status, h.Notes.ToList());
 
     private static SpeechView View(Speech s) => new(s.Id, s.Participant, s.Text, s.State, s.ReplyTo, s.HeardThrough, s.HeardText);
 }

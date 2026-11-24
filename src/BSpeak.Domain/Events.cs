@@ -37,6 +37,10 @@ public sealed record UserSpoke(int UtteranceId, string Text, string? AddressedTo
 public sealed record UtteranceDiscarded(DiscardReason Reason) : DomainEvent { public override string Stream => "room"; }
 public sealed record FloorGranted(string SpeechId, string Participant) : DomainEvent { public override string Stream => "room"; }
 
+// Handoff
+public sealed record HandoffPosted(string HandoffId, string From, string Text, int? UtteranceId) : DomainEvent { public override string Stream => $"handoff:{HandoffId}"; }
+public sealed record HandoffUpdated(string HandoffId, string From, string By, HandoffStatus Status, string? Note) : DomainEvent { public override string Stream => $"handoff:{HandoffId}"; }
+
 // Speech
 public sealed record SpeechQueued(string SpeechId, string Participant, string Text, int? ReplyTo) : DomainEvent { public override string Stream => $"speech:{SpeechId}"; }
 public sealed record PlaybackStarted(string SpeechId, string Participant, string Voice) : DomainEvent { public override string Stream => $"speech:{SpeechId}"; }

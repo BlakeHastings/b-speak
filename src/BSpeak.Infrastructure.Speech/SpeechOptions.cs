@@ -28,6 +28,9 @@ public sealed class TtsOptions
     /// <summary>Kokoro model precision: "fp32" (best), "quant", or "int8" (smallest).</summary>
     public string Variant { get; set; } = "fp32";
 
+    /// <summary>Where Kokoro runs: "cpu" (default), or "auto"/"directml" to try the GPU through DirectML (Kokoro v1.0 currently fails there and falls back).</summary>
+    public string Device { get; set; } = "cpu";
+
     /// <summary>Speaking rate. 1.0 is natural; 1.1 to 1.2 suits listening while busy.</summary>
     public float Speed { get; set; } = 1.1f;
 
@@ -44,6 +47,7 @@ public sealed class TtsOptions
 
     public static readonly IReadOnlyList<string> OpenAiVoices = ["onyx", "nova", "echo", "shimmer", "fable", "alloy"];
 
+    [System.Text.Json.Serialization.JsonIgnore]
     public IReadOnlyList<string> EffectiveVoices =>
         Voices.Count > 0 ? Voices : Provider.Equals("openai", StringComparison.OrdinalIgnoreCase) ? OpenAiVoices : KokoroVoices;
 }

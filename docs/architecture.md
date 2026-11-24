@@ -140,7 +140,8 @@ The host plays a short earcon (a distinct tone) on pause and resume so you know 
 | `reply-to-unknown` | speech post | `--reply-to` names an utterance that does not exist |
 | `conversation-moved-on` | speech post | A newer utterance meant for you arrived; read it first |
 | `speech-not-yours` | speech delete | Only the speaker may withdraw a speech |
-| `state-transition` | speech delete, playback | The speech is not in a state that allows this |
+| `state-transition` | speech delete, playback, handoff patch | The speech or handoff is not in a state that allows this |
+| `handoff-empty`, `handoff-result-required` | handoff post, handoff patch | No task text; closing a handoff without a spoken result |
 
 `speech-unknown` is a not-found (exit 4), not a rule.
 
@@ -176,12 +177,13 @@ Each capability is a port with swappable implementations, chosen in config.
 | Port | Local (default) | Remote |
 |---|---|---|
 | Speech to text | Whisper (whisper.cpp via Whisper.net) | OpenAI-compatible `/v1/audio/transcriptions` |
-| Text to speech | Kokoro (KokoroSharp, CPU, Apache-2.0) | OpenAI-compatible `/v1/audio/speech` (for example Orpheus behind a LiteLLM gateway) |
+| Text to speech | Kokoro (KokoroSharp, CPU, Apache-2.0); about 0.4 s for a short clause, 1.3 s for a long sentence | OpenAI-compatible `/v1/audio/speech` (for example Orpheus behind a LiteLLM gateway) |
 | Voice activity detection | Silero VAD (ONNX) | n/a |
 | Audio I/O | PortAudio (WASAPI on Windows) | n/a |
 
 - **Seamless local models.** `bspeak model pull` downloads the default local models into the profile folder, and the host pulls them on first use if missing. No server or endpoint to run.
-- **Latency.** TTS synthesizes per sentence and starts playing the first sentence while the rest is generated.
+- **Latency.** TTS synthesizes per sentence and starts playing the first sentence while the rest is generated. A long first sentence is split at its first natural pause, so a short opening clause plays sooner.
+- **GPU.** Whisper runs on Vulkan (or CUDA when the toolkit is installed), falling back to the CPU. Kokoro v1.0 cannot run on DirectML (a ConvTranspose op fails), so it stays on the CPU; the engine catches that and falls back rather than crashing.
 - **Config** lives in the profile folder (`~/.bspeak/config.json`): provider per port, endpoint and model names, voices, devices, control phrases, mode. `bspeak provider put` and `bspeak device put` edit it.
 
 ## CLI and HTTP API
@@ -202,28 +204,33 @@ Commands are `bspeak <resource> <verb>` with the HTTP verbs `get`, `list`, `post
 | utterance | `post "<text>"` | Type as if you had said it: for testing, or without a mic |
 | selftest | `[--play]` | Speaks a sentence and transcribes it back through the real engines, no mic needed |
 
-## The agent loop
+| inbox | `list --as <name> [--after <seq>] [--wait]` | The voice agent's wait: utterances, updates on its handoffs, its own interruptions and playback failures. Returns `next` to pass back |
+| handoff | `post "<task>" --as <name> [--utterance <id>]`, `list [--status] [--wait]`, `get`, `patch --status --note [--by]` | Work passed from the voice agent to the orchestrator; `list --wait` blocks until one is open |
 
-```
-bspeak brief get
-bspeak participant post --name Atlas                    # prints {"after": 7, ...}
-bspeak utterance list --after 7 --wait --as Atlas      # in a background shell; exits when you speak
-  ... utterance 8 arrives; act on it, keep working ...
-bspeak speech post "Tests pass. Want me to open the PR?" --reply-to 8 --as Atlas
-bspeak utterance list --after 8 --wait --as Atlas      # wait again
-```
+## Two tiers: a fast voice and a deep worker
 
-A harness that notifies on background-shell exit (Claude Code does) lets the agent keep working while it listens, so your next sentence interrupts and steers it.
+The cycle that matters is: you stop talking, the agent thinks, the agent speaks. b-speak's part of it is small (end of turn 750 ms, speech to text about 200 ms on the GPU, first audio about half a second for a short clause). The model's turn dominates, and a turn that includes a tool call can take tens of seconds. So the recommended setup splits the work across two agents:
+
+| Role | Model | In the room | Runs tools | Waits on |
+|---|---|---|---|---|
+| **Voice agent** | The harness's fastest (Sonnet or Haiku), ideally a dedicated subagent | Yes | Only `bspeak` | `inbox list --wait` (foreground; it has nothing else to do) |
+| **Orchestrator** | The model the user asked to start b-speak (for example Opus) | No | Everything; delegates to workers | `handoff list --wait` (background, so it can keep working) |
+
+The voice agent answers what it can from the conversation, asks clarifying questions, and acknowledges every request at once. Anything that needs tools it posts as a handoff, written for someone who did not hear the call. The orchestrator claims it (`working`), may post progress notes, and closes it (`done` or `failed`) with a result written to be spoken. The voice agent hears each update in its inbox and tells the user in its own words.
+
+The two agents never talk directly: the handoff is a resource in the host, so the pattern does not depend on any harness's subagent messaging. One agent can play both roles when a harness has no background subagents; it then acknowledges before each tool call.
+
+### The Handoff aggregate
+
+| Operations | Invariants |
+|---|---|
+| `Post`, `Update` | Posted by a participant in the room, with text; may reference an utterance that exists; status moves Open to Working to Done or Failed and never back; closing requires a result note (`handoff-result-required`); a closed handoff never changes |
+
+Events: `HandoffPosted` (handoffId, from, text, utteranceId) and `HandoffUpdated` (handoffId, from, by, status, note). The inbox read model is built from `UserSpoke`, `HandoffUpdated` for the participant's own handoffs, and its own `SpeechInterrupted` and failed `SpeechWithdrawn`; its cursor is the event sequence. `handoff-unknown` is a not-found (exit 4).
 
 ## The skill (prose)
 
-Short, judgment only. Draft points:
-
-- You are one of several people in a room with the user. Answer when addressed, or when you hold focus and nothing is addressed. Otherwise stay quiet.
-- Speak like a person: short sentences, no Markdown, no lists read aloud, no file paths or URLs unless asked.
-- Speak at milestones, when you need a decision, and when you are blocked. Do routine work (editing, running tests) silently.
-- Summarize outcomes, never read them out: "Tests pass, three files changed", not the diff.
-- Always keep a listener running while you work. If your speech is rejected as `conversation-moved-on`, read the new utterance first.
+`skills/b-speak/SKILL.md` is the orchestrator's playbook: spawn the voice agent, run the handoff loop, write spoken results, recover from restarts. `skills/b-speak/voice-agent.md` is the voice agent's instructions, which the orchestrator points it at. The harness-neutral version of both lives in `bspeak brief get`.
 
 ## Not built yet
 

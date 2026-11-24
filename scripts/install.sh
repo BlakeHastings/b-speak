@@ -29,7 +29,7 @@ if [ -f "$bin/bspeak.exe" ]; then
 fi
 
 mkdir -p "$HOME/.claude/skills/b-speak"
-cp "$repo/skills/b-speak/SKILL.md" "$HOME/.claude/skills/b-speak/SKILL.md"
+cp "$repo/skills/b-speak/"*.md "$HOME/.claude/skills/b-speak/"
 
 for asset in voices espeak runtimes; do
   [ -d "$bin/$asset" ] || { echo "Publish is missing $asset/; text to speech will not work." >&2; exit 1; }

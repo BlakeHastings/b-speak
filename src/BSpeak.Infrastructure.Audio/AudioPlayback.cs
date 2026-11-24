@@ -59,6 +59,23 @@ public sealed class AudioPlayback(RenderDevice render, ITextToSpeech tts, ILogge
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { }
     }
 
+    /// <summary>
+    /// Splits a long first sentence at its first natural pause (comma, semicolon, colon or dash) so a short
+    /// opening clause is synthesized and playing while the rest is generated. Short sentences stay whole.
+    /// </summary>
+    public static IReadOnlyList<string> FirstAudioChunks(string sentence, int minHead = 12, int splitAbove = 60)
+    {
+        if (sentence.Length <= splitAbove) return [sentence];
+        for (var i = minHead; i < sentence.Length - minHead; i++)
+        {
+            var c = sentence[i];
+            var pause = c is ',' or ';' or ':' || (c == '-' && i > 0 && sentence[i - 1] == ' ');
+            if (pause && i + 1 < sentence.Length && sentence[i + 1] == ' ')
+                return [sentence[..(i + 1)].Trim(), sentence[(i + 1)..].Trim()];
+        }
+        return [sentence];
+    }
+
     private async Task SpeakAsync(PlaybackRequest request, CancellationToken ct)
     {
         var room = _room ?? throw new InvalidOperationException("AudioPlayback is not attached to a room.");
@@ -68,15 +85,19 @@ public sealed class AudioPlayback(RenderDevice render, ITextToSpeech tts, ILogge
         {
             for (var i = 0; i < request.Sentences.Count; i++)
             {
-                var pcm = await tts.SynthesizeAsync(request.Sentences[i], request.Voice, ct);
-                var samples = Resampling.Resample(pcm, tts.SampleRate, render.SampleRate);
-                if (ct.IsCancellationRequested) return;
-                var start = render.WritePosition;
-                render.Write(samples);
-                if (!started)
+                // Only the first sentence is split: later ones are synthesized while earlier ones play.
+                foreach (var chunk in i == 0 ? FirstAudioChunks(request.Sentences[i]) : [request.Sentences[i]])
                 {
-                    started = true;
-                    render.MarkAt(start + 1, () => room.PlaybackStarted(id));
+                    var pcm = await tts.SynthesizeAsync(chunk, request.Voice, ct);
+                    var samples = Resampling.Resample(pcm, tts.SampleRate, render.SampleRate);
+                    if (ct.IsCancellationRequested) return;
+                    var start = render.WritePosition;
+                    render.Write(samples);
+                    if (!started)
+                    {
+                        started = true;
+                        render.MarkAt(start + 1, () => room.PlaybackStarted(id));
+                    }
                 }
                 var index = i;
                 render.MarkAt(render.WritePosition, () => room.SentencePlayed(id, index));
