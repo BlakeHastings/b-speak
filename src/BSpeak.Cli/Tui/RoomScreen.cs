@@ -19,7 +19,7 @@ public sealed class Line(params Seg[] segs)
 }
 
 /// <summary>What an agent is doing, as the room sees it.</summary>
-public enum AgentActivity { Idle, Waiting, UpNext, Talking }
+public enum AgentActivity { Idle, HandUp, Waiting, UpNext, Talking }
 
 /// <summary>
 /// The room as the TUI shows it, built from the host's event log plus a periodic status snapshot.
@@ -38,13 +38,17 @@ public sealed class RoomScreen
         /// <summary>Speeches posted and not yet played, oldest first.</summary>
         public List<string> Pending { get; } = [];
         public string? UpNext { get; set; }
+        /// <summary>The speech id of this agent's raised hand, if it is up.</summary>
+        public string? Hand { get; set; }
+        public DateTimeOffset? HandSince { get; set; }
         public string? Talking { get; set; }
         public DateTimeOffset? TalkingSince { get; set; }
 
         public AgentActivity Activity =>
             Talking is not null ? AgentActivity.Talking
             : UpNext is not null ? AgentActivity.UpNext
-            : Pending.Count > 0 ? AgentActivity.Waiting
+            : Pending.Any(id => id != Hand) ? AgentActivity.Waiting
+            : Hand is not null ? AgentActivity.HandUp
             : AgentActivity.Idle;
     }
 
@@ -62,6 +66,11 @@ public sealed class RoomScreen
     public IReadOnlyList<LogEntry> Log => _log;
     public bool Listening { get; private set; } = true;
     public string Mode { get; private set; } = "always";
+    public string Turns { get; private set; } = "open";
+    private readonly List<string> _hands = [];
+
+    /// <summary>Who has a hand up, first up first. Number keys call on them in this order.</summary>
+    public IReadOnlyList<string> HandOrder => _hands.Select(id => _speeches.GetValueOrDefault(id)?.Participant ?? _agents.FirstOrDefault(a => a.Hand == id)?.Name).OfType<string>().ToList();
     public string? WakeWord { get; private set; }
     public bool UserSpeaking { get; private set; }
     public DateTimeOffset? UserSpeakingSince { get; private set; }
@@ -188,6 +197,31 @@ public sealed class RoomScreen
                 Done(S("participant")!, id);
                 break;
             }
+            case "TurnModeChanged":
+                Turns = S("mode") ?? Turns;
+                Add(at, "room", Turns == "hands-up" ? "hands up: agents raise a hand and wait to be called on" : "open floor", "1;33");
+                if (Turns == "open")
+                    foreach (var id in _hands.ToList()) LowerHand(id); // they join the line in order
+                break;
+            case "HandRaised":
+                if (Find(S("participant")!) is { } raiser)
+                {
+                    raiser.Hand = S("speechId");
+                    raiser.HandSince = at;
+                    _hands.Add(raiser.Hand!);
+                }
+                Add(at, S("participant")!, "raised a hand", "33");
+                break;
+            case "HandCalledOn":
+                LowerHand(S("speechId")!);
+                Add(at, S("by") == "voice" ? "you" : "room", $"called on {S("participant")}", "33");
+                break;
+            case "SpeechRevised":
+                if (_speeches.TryGetValue(S("speechId")!, out var revised)) _speeches[revised.Id] = revised with { Text = S("text") ?? revised.Text };
+                break;
+            case "HandsAsked":
+                Add(at, "you", "who has a hand up?", "36");
+                break;
             case "HandoffPosted":
                 Add(at, S("from")!, $"handed off: {S("text")}", "35");
                 break;
@@ -208,6 +242,17 @@ public sealed class RoomScreen
         if (room.TryGetProperty("listening", out var listening)) Listening = listening.GetBoolean();
         if (room.TryGetProperty("mode", out var mode)) Mode = mode.GetString() ?? Mode;
         if (room.TryGetProperty("wakeWord", out var wake)) WakeWord = wake.ValueKind == JsonValueKind.String ? wake.GetString() : null;
+        if (room.TryGetProperty("turns", out var turns)) Turns = turns.GetString() ?? Turns;
+        if (room.TryGetProperty("hands", out var hands))
+        {
+            // The host's order is the truth; events only fill in the text and timing.
+            var slots = hands.EnumerateArray().Select(h => (Id: h.GetProperty("speechId").GetString()!, Who: h.GetProperty("participant").GetString()!)).ToList();
+            foreach (var gone in _hands.Except(slots.Select(s => s.Id)).ToList()) LowerHand(gone);
+            _hands.Clear();
+            _hands.AddRange(slots.Select(s => s.Id));
+            foreach (var (id, who) in slots)
+                if (Find(who) is { } agent && agent.Hand != id) { agent.Hand = id; agent.HandSince ??= DateTimeOffset.Now; }
+        }
         if (room.TryGetProperty("userSpeaking", out var speaking))
         {
             var now = speaking.GetBoolean();
@@ -238,7 +283,14 @@ public sealed class RoomScreen
             if (agent.UpNext == speechId) agent.UpNext = null;
             if (agent.Talking == speechId) { agent.Talking = null; agent.TalkingSince = null; }
         }
+        LowerHand(speechId);
         _speeches.Remove(speechId);
+    }
+
+    private void LowerHand(string speechId)
+    {
+        _hands.Remove(speechId);
+        foreach (var a in _agents.Where(a => a.Hand == speechId)) { a.Hand = null; a.HandSince = null; }
     }
 
     private string TextOf(string speechId) => _speeches.TryGetValue(speechId, out var s) ? s.Text : "";
@@ -274,6 +326,7 @@ public sealed class RoomScreen
             : Mode == "wake-word" ? ($"listening for \"{WakeWord}\"", "32")
             : ("listening", "32");
         var header = new Line(new Seg(" b-speak ", "1;7"), new Seg("  "), new Seg(listening.Item1, listening.Item2));
+        header.Add("   ").Add(Turns == "hands-up" ? "hands up" : "open floor", Turns == "hands-up" ? "1;33" : "2");
         if (Volume is { } volume) header.Add($"   volume {volume}%", "2");
         header.Add($"   {_agents.Count} {(_agents.Count == 1 ? "agent" : "agents")}", "2");
         header.Add($"   {now.ToLocalTime():HH:mm:ss}", "2");
@@ -319,6 +372,14 @@ public sealed class RoomScreen
                        .Add(first is null ? "" : first.Text, "2");
                     break;
                 }
+                case AgentActivity.HandUp:
+                {
+                    var place = _hands.IndexOf(agent.Hand!) + 1;
+                    row.Add($" [{place}] ", "1;33").Add("hand up", "1;33")
+                       .Add(agent.HandSince is { } hs ? $" {Seconds(hs, now)}  " : "  ", "2")
+                       .Add(TextOf(agent.Hand!));
+                    break;
+                }
                 default:
                     row.Add(agent.Listening ? "     listening" : "     busy", "2");
                     break;
@@ -343,5 +404,15 @@ public sealed class RoomScreen
         return rows;
     }
 
-    private static Line Footer() => new(new Seg("  q", "1"), new Seg(" quit   ", "2"), new Seg("space", "1"), new Seg(" pause or resume listening   ", "2"), new Seg("+ -", "1"), new Seg(" volume", "2"));
+    private Line Footer()
+    {
+        var footer = new Line(new Seg("  q", "1"), new Seg(" quit   ", "2"), new Seg("space", "1"), new Seg(" listening   ", "2"), new Seg("+ -", "1"), new Seg(" volume   ", "2"));
+        if (Turns == "hands-up")
+        {
+            footer.Add("h", "1").Add(" open floor   ", "2");
+            if (_hands.Count > 0) footer.Add(_hands.Count == 1 ? "1" : $"1-{Math.Min(9, _hands.Count)}", "1").Add(" call on   ", "2").Add("n", "1").Add(" next", "2");
+        }
+        else footer.Add("h", "1").Add(" hands up", "2");
+        return footer;
+    }
 }

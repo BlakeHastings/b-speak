@@ -12,7 +12,7 @@ public sealed class SystemClock : IClock
     public DateTimeOffset Now => DateTimeOffset.UtcNow;
 }
 
-public enum Earcon { ListeningPaused, ListeningResumed }
+public enum Earcon { ListeningPaused, ListeningResumed, HandRaised }
 
 /// <summary>A speech that has been granted the floor and should be synthesized and played.</summary>
 public sealed record PlaybackRequest(string SpeechId, string Voice, IReadOnlyList<string> Sentences);

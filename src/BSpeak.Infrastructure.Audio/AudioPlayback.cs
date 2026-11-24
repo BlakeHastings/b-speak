@@ -168,14 +168,18 @@ public sealed class OnsetFade(int sampleRate, int muteMs = 10, int rampMs = 10)
     }
 }
 
-/// <summary>Short two-note tones: falling for "stopped listening", rising for "listening again".</summary>
+/// <summary>
+/// Short tones: falling for "stopped listening", rising for "listening again", and a soft single
+/// note with a gentle decay when an agent raises a hand.
+/// </summary>
 public static class Earcons
 {
-    public static float[] Render(Earcon earcon, int sampleRate)
+    public static float[] Render(Earcon earcon, int sampleRate) => earcon switch
     {
-        var (first, second) = earcon == Earcon.ListeningPaused ? (880.0, 587.0) : (587.0, 880.0);
-        return [.. Tone(first, 0.09, sampleRate), .. new float[sampleRate / 40], .. Tone(second, 0.12, sampleRate)];
-    }
+        Earcon.ListeningPaused => [.. Tone(880, 0.09, sampleRate), .. new float[sampleRate / 40], .. Tone(587, 0.12, sampleRate)],
+        Earcon.HandRaised => Chime(1046.5, 0.35, sampleRate),
+        _ => [.. Tone(587, 0.09, sampleRate), .. new float[sampleRate / 40], .. Tone(880, 0.12, sampleRate)],
+    };
 
     private static float[] Tone(double hz, double seconds, int rate)
     {
@@ -186,6 +190,21 @@ public static class Earcons
         {
             var envelope = Math.Min(1.0, Math.Min(i, n - 1 - i) / (double)fade);
             samples[i] = (float)(0.18 * envelope * Math.Sin(2 * Math.PI * hz * i / rate));
+        }
+        return samples;
+    }
+
+    /// <summary>A quiet bell-like note: quick attack, exponential decay.</summary>
+    private static float[] Chime(double hz, double seconds, int rate)
+    {
+        var n = (int)(seconds * rate);
+        var samples = new float[n];
+        var attack = Math.Max(1, rate / 200);
+        for (var i = 0; i < n; i++)
+        {
+            var t = i / (double)rate;
+            var envelope = Math.Min(1.0, i / (double)attack) * Math.Exp(-t * 9) * Math.Min(1.0, (n - 1 - i) / (double)attack);
+            samples[i] = (float)(0.12 * envelope * (Math.Sin(2 * Math.PI * hz * t) + 0.3 * Math.Sin(4 * Math.PI * hz * t)));
         }
         return samples;
     }

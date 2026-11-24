@@ -85,6 +85,35 @@ public sealed class RoomScreenTests
     }
 
     [Fact]
+    public void Hands_show_in_order_with_their_latest_text_until_called_on()
+    {
+        On("ParticipantJoined", new { name = "Atlas", voice = "Miles" });
+        On("ParticipantJoined", new { name = "Nova", voice = "Harper" });
+        On("TurnModeChanged", new { mode = "hands-up", by = "voice" });
+        // The room's HandRaised is logged before the speech's SpeechQueued; the view copes with either order.
+        On("HandRaised", new { speechId = "s1", participant = "Nova" }, 5);
+        On("SpeechQueued", new { speechId = "s1", participant = "Nova", text = "Schema question." }, 5);
+        On("HandRaised", new { speechId = "s2", participant = "Atlas" }, 8);
+        On("SpeechQueued", new { speechId = "s2", participant = "Atlas", text = "Parser update." }, 8);
+        On("SpeechRevised", new { speechId = "s2", participant = "Atlas", text = "Parser is fixed." }, 20);
+
+        Assert.Equal(["Nova", "Atlas"], _screen.HandOrder);
+        Assert.Contains("[1] hand up 25s  Schema question.", Row("Nova"));
+        Assert.Contains("[2] hand up 22s  Parser is fixed.", Row("Atlas"));
+        Assert.Contains("hands up", _screen.Render(T0, 200, 40)[0].Plain);
+        Assert.Contains("1-2 call on", _screen.Render(T0, 200, 40)[^1].Plain);
+
+        On("HandCalledOn", new { speechId = "s2", participant = "Atlas", by = "voice" }, 25);
+        Assert.Equal(["Nova"], _screen.HandOrder);
+        Assert.Equal(AgentActivity.Waiting, _screen.Find("Atlas")!.Activity);
+        Assert.Equal(("you", "called on Atlas"), (_screen.Log[^1].Who, _screen.Log[^1].Text));
+
+        On("TurnModeChanged", new { mode = "open", by = "cli" }, 26);
+        Assert.Empty(_screen.HandOrder);
+        Assert.Equal(AgentActivity.Waiting, _screen.Find("Nova")!.Activity);
+    }
+
+    [Fact]
     public void Replaying_the_same_events_twice_changes_nothing()
     {
         var data = JsonSerializer.SerializeToElement(new { name = "Atlas", voice = "Miles" });

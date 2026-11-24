@@ -12,8 +12,8 @@ public sealed class Speech : AggregateRoot
 {
     public string Id { get; private init; } = "";
     public string Participant { get; private init; } = "";
-    public string Text { get; private init; } = "";
-    public IReadOnlyList<string> Sentences { get; private init; } = [];
+    public string Text { get; private set; } = "";
+    public IReadOnlyList<string> Sentences { get; private set; } = [];
     public int? ReplyTo { get; private init; }
     public SpeechState State { get; private set; }
     public string? Voice { get; private set; }
@@ -31,13 +31,7 @@ public sealed class Speech : AggregateRoot
     {
         var name = room.CanonicalName(participant)
             ?? throw new DomainViolation("participant-unknown", $"'{participant}' is not in the room. Join with participant post --name.");
-        text = (text ?? "").Trim();
-        if (text.Length == 0)
-            throw new DomainViolation("speech-empty", "There is nothing to say.");
-        if (SpokenText.FindMarkdown(text) is { } found)
-            throw new DomainViolation("speech-markdown", $"The speech contains {found}. Say it the way you would out loud.");
-        if (text.Length > rules.MaxLength)
-            throw new DomainViolation("speech-too-long", $"The speech is {text.Length} characters; the limit is {rules.MaxLength}. Say the headline and offer the detail.");
+        text = Validate(text, rules);
         if (replyTo is int r)
         {
             if (r < 1 || r > room.UtteranceCount)
@@ -53,6 +47,34 @@ public sealed class Speech : AggregateRoot
         };
         speech.Raise(new SpeechQueued(id, name, text, replyTo));
         return speech;
+    }
+
+    private static string Validate(string text, SpeechRules rules)
+    {
+        text = (text ?? "").Trim();
+        if (text.Length == 0)
+            throw new DomainViolation("speech-empty", "There is nothing to say.");
+        if (SpokenText.FindMarkdown(text) is { } found)
+            throw new DomainViolation("speech-markdown", $"The speech contains {found}. Say it the way you would out loud.");
+        if (text.Length > rules.MaxLength)
+            throw new DomainViolation("speech-too-long", $"The speech is {text.Length} characters; the limit is {rules.MaxLength}. Say the headline and offer the detail.");
+        return text;
+    }
+
+    /// <summary>
+    /// Replaces what a waiting speech will say, keeping its place (and a raised hand) in line. Only its own
+    /// participant may revise it, and only before it is granted the floor (the room checks that part).
+    /// </summary>
+    public void Revise(string by, string text, SpeechRules rules)
+    {
+        if (by != Participant)
+            throw new DomainViolation("speech-not-yours", $"Speech {Id} belongs to {Participant}.");
+        RequireState(SpeechState.Queued, "change");
+        text = Validate(text, rules);
+        if (text == Text) return;
+        Text = text;
+        Sentences = SpokenText.Sentences(text);
+        Raise(new SpeechRevised(Id, Participant, text));
     }
 
     /// <summary>Withdraws a speech that has not started playing. Only its own participant may withdraw it.</summary>

@@ -58,8 +58,8 @@ Capture, voice detection and transcription form a streaming pipeline. Forcing it
 
 | Aggregate | Domain operations | Invariants it enforces |
 |---|---|---|
-| **Room** (one per host) | `Join`, `Leave`, `Touch`, `ExpireIdle`, `PauseListening`, `ResumeListening`, `SetMode`, `BeginUserTurn`, `RecordUtterance`, `RequestFloor`, `TryGrantFloor`, `ReleaseFloor`, `ReturnFloor` | Names are speakable, unique, not confusable with each other by ear, and use no reserved or control-phrase word; one floor holder at a time; the floor is never granted while you speak or inside the gap after; nothing but the resume phrase gets through while listening is paused |
-| **Speech** (one per thing an agent says) | `Queue`, `Start`, `SentencePlayed`, `Finish`, `Interrupt`, `Withdraw` | Plain spoken text only: no code fences, inline code, bullets, headings, tables, bold, links or raw URLs; at most a configured length (600 characters by default); state moves Queued to Playing to Finished or Interrupted, or Queued to Withdrawn, and never back; only its own participant may withdraw it; a `--reply-to` speech is rejected if the conversation has moved on (see below) |
+| **Room** (one per host) | `Join`, `Leave`, `Touch`, `ExpireIdle`, `PauseListening`, `ResumeListening`, `SetMode`, `BeginUserTurn`, `RecordUtterance`, `RequestFloor`, `RaisesHand`, `CallOn`, `SetTurnMode`, `TryGrantFloor`, `ReleaseFloor`, `ReturnFloor` | Names are speakable, unique, not confusable with each other by ear, and use no reserved or control-phrase word; one floor holder at a time; the floor is never granted while you speak or inside the gap after; nothing but the resume phrase gets through while listening is paused |
+| **Speech** (one per thing an agent says) | `Queue`, `Start`, `SentencePlayed`, `Finish`, `Interrupt`, `Withdraw`, `Revise` | Plain spoken text only: no code fences, inline code, bullets, headings, tables, bold, links or raw URLs; at most a configured length (600 characters by default); state moves Queued to Playing to Finished or Interrupted, or Queued to Withdrawn, and never back; only its own participant may withdraw or revise it, and only while it waits; a `--reply-to` speech is rejected if the conversation has moved on (see below) |
 
 `Speech` asks the room what it needs through a narrow `IRoomView` (is this participant here, how many utterances exist, which is the newest one meant for this participant), so the two aggregates stay separate.
 
@@ -93,6 +93,7 @@ Only one voice plays at a time.
 - `speech post` queues a Speech and requests the floor. Requests are granted in order.
 - The floor is never granted while you are speaking, or until a short gap (700 ms by default) after you stop or after the previous speech ends, so you always get the chance to answer first.
 - When you start speaking during playback, playback stops at once (barge-in). With a headset the mic does not hear the speaker, so barge-in works in v1 without echo cancellation. The interrupted Speech records the last sentence you fully heard, so the agent knows what got through. A speech that had the floor but had not started playing is withdrawn, and once you finish a sentence everything still queued is withdrawn too: nothing resumes on its own, so each agent decides whether what it was going to say still fits.
+- **Hands up.** The room has a turn mode: `open` (above) or `hands-up` (said as "hands up" and "open floor", or `turns put`). In hands up, a new speech raises a hand instead of joining the line, unless it is a direct reply (its `--reply-to` is the newest utterance meant for that participant), which skips the line. Hands are never granted by themselves: the user calls on one ("Atlas, go ahead", or "next" for the first one up; `turns call` from the CLI or the room view), which moves it to the front of the line. One hand per participant (`hand-already-up`); `speech patch` revises a waiting speech and keeps its place, so an agent keeps working and keeps its hand current instead of stacking stale messages. Hands survive new utterances; going back to an open floor lowers them into the line in order. "Who has their hand up?" is answered aloud by the room in a voice no agent uses.
 - `--reply-to <utterance>` makes the speech conditional: if a newer utterance meant for this participant (addressed to it, to everyone, or unaddressed while it holds focus) arrived after it, the post is rejected with the rule `conversation-moved-on`, so the agent reads the new utterance before answering a stale one.
 
 ### Listening modes and the toggle
@@ -120,6 +121,11 @@ The host plays a short earcon (a distinct tone) on pause and resume so you know 
 | `UserSpoke` | utteranceId, text, addressedTo, focus |
 | `UtteranceDiscarded` | reason (empty, paused, no-wake-word, control); never the text |
 | `FloorGranted` | speechId, participant |
+| `TurnModeChanged` | mode (open, hands-up), by |
+| `HandRaised` | speechId, participant |
+| `HandCalledOn` | speechId, participant, by |
+| `HandsAsked` | none |
+| `SpeechRevised` | speechId, participant, text |
 | `SpeechQueued` | speechId, participant, text, replyTo |
 | `PlaybackStarted` | speechId, participant, voice |
 | `PlaybackFinished` | speechId, participant |
@@ -158,11 +164,13 @@ The host plays a short earcon (a distinct tone) on pause and resume so you know 
 | Whenever | Then |
 |---|---|
 | `UserStartedSpeaking` while a speech holds the floor (**Barge-in**) | Interrupt it if playing; withdraw it (reason `interrupted`) if it had not started; stop playback and drop audio still in flight |
-| `UserSpoke` (**Drop stale speech**) | Withdraw every speech still waiting (reason `user-spoke`): it was written before what the user just said. Agents see each in their inbox (`speech-withdrawn` with its text) and decide whether to say any of it again. Noise and coughs produce no `UserSpoke`, so they leave the queue alone |
+| `UserSpoke` (**Drop stale speech**) | Withdraw every speech still waiting except raised hands (reason `user-spoke`): it was written before what the user just said. Agents see each in their inbox (`speech-withdrawn` with its text) and decide whether to say any of it again. Noise and coughs produce no `UserSpoke`, so they leave the queue alone |
 | `FloorGranted` (**Play on grant**) | Ask the render side to synthesize and play it |
 | `ListeningPaused`, `ListeningResumed` (**Earcon**) | Play the matching tone |
+| `HandRaised` (**Chime**) | Play a soft single tone |
+| `HandsAsked`, `TurnModeChanged` (**Room speaks**) | Say who has a hand up, or which mode is on, in a voice no agent uses; talking over it stops it |
 | `ParticipantLeft` (**Withdraw on leave**) | Withdraw everything it had queued |
-| `SpeechQueued`, `PlaybackFinished`, `SpeechInterrupted`, `SpeechWithdrawn` (**Next speaker**) | Try to grant the floor to the oldest queued speech |
+| `SpeechQueued`, `PlaybackFinished`, `SpeechInterrupted`, `SpeechWithdrawn`, `HandCalledOn`, `TurnModeChanged` (**Next speaker**) | Try to grant the floor to the oldest queued speech |
 | Clock tick | Expire idle participants; try to grant the floor (picks up speeches waiting out the gap) |
 
 Control phrases and addressing are not policies: they are part of how `RecordUtterance` decides what an utterance is. All policies run inside `RoomService`, in the same locked step as the command that triggered them. Effects on the devices (play, stop, earcon) run after the lock is released.

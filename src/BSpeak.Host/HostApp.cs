@@ -21,6 +21,9 @@ public sealed record ListeningRequest(bool On, string? As);
 public sealed record HandoffRequest(string As, string Text, int? UtteranceId);
 public sealed record HandoffPatch(HandoffStatus Status, string? Note, string? By);
 public sealed record ModeRequest(ListeningMode Mode, string? WakeWord);
+public sealed record SpeechPatch(string As, string Text);
+public sealed record TurnsRequest(TurnMode Mode, string? As);
+public sealed record CallOnRequest(string? Name, string? By);
 public sealed record ParticipantPatch(string? Voice);
 public sealed record VolumeRequest(int? Volume, string? Step);
 public sealed record ErrorBody(string Code, string Message);
@@ -202,6 +205,11 @@ public static class HostApp
         api.MapGet("/speech/{id}", async (string id, double? wait, HttpContext ctx) =>
             wait is > 0 ? await room.WaitForSpeechAsync(id, Clamp(wait.Value), ctx.RequestAborted) ?? room.GetSpeech(id) : room.GetSpeech(id));
         api.MapDelete("/speech/{id}", (string id, string @as) => { room.WithdrawSpeech(@as, id); return room.GetSpeech(id); });
+        api.MapPatch("/speech/{id}", (string id, SpeechPatch body) => room.ReviseSpeech(body.As, id, body.Text));
+
+        api.MapGet("/turns", () => room.Turns());
+        api.MapPut("/turns", (TurnsRequest body) => room.SetTurnMode(body.Mode, body.As is null ? "cli" : $"cli:{body.As}"));
+        api.MapPost("/turns/call", (CallOnRequest body) => room.CallOn(body.Name, body.By ?? "cli"));
 
         api.MapGet("/inbox", async (string @as, long? after, double? wait, HttpContext ctx) =>
             wait is > 0

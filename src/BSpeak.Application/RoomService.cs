@@ -23,6 +23,8 @@ public sealed class RoomService
     private readonly Dictionary<string, int> _openWaits = new(StringComparer.Ordinal);
     private readonly Dictionary<string, Handoff> _handoffs = new(StringComparer.Ordinal);
     private List<Action> _effects = [];
+    private int _announcementCounter;
+    private string? _announcing;
     private int _speechCounter;
     private int _handoffCounter;
 
@@ -152,7 +154,8 @@ public sealed class RoomService
             }
         }
         static int? Ago(DateTimeOffset? at, DateTimeOffset now) => at is { } t ? (int)Math.Max(0, (now - t).TotalSeconds) : null;
-        return new RoomContext(lastHeard, Ago(lastHeardAt, now), Ago(youLastSpoke, now), Ago(lastToYou, now));
+        return new RoomContext(lastHeard, Ago(lastHeardAt, now), Ago(youLastSpoke, now), Ago(lastToYou, now),
+            _room.TurnMode, _room.Hands.FirstOrDefault(h => h.Participant == name)?.SpeechId);
     }
 
     /// <summary>The sentences of an interrupted speech the user never heard.</summary>
@@ -213,11 +216,46 @@ public sealed class RoomService
     {
         var p = _room.Touch(@as, _clock.Now);
         var speech = Speech.Queue($"s{_speechCounter + 1}", p.Name, text, replyTo, _room, _rules);
+        var asHand = _room.RaisesHand(p.Name, replyTo); // throws hand-already-up before the speech is kept
         _speechCounter++;
         _speeches[speech.Id] = speech;
-        _room.RequestFloor(speech.Id, p.Name);
+        _room.RequestFloor(speech.Id, p.Name, asHand);
         return View(speech);
     });
+
+    /// <summary>
+    /// Changes what a waiting speech will say, keeping its place in line (and its raised hand). Too late once
+    /// it has been granted the floor, because synthesis has started.
+    /// </summary>
+    public SpeechView ReviseSpeech(string @as, string speechId, string text) => Run(() =>
+    {
+        var p = _room.Touch(@as, _clock.Now);
+        var speech = RequireSpeech(speechId);
+        if (_room.IsGranted(speechId) && speech.State == SpeechState.Queued)
+            throw new DomainViolation("speech-starting", $"Speech {speechId} is about to play and can no longer be changed.");
+        speech.Revise(p.Name, text, _rules);
+        return View(speech);
+    });
+
+    // ================= taking turns
+
+    /// <param name="by">Who switched: "voice", "cli", or a participant.</param>
+    public TurnsView SetTurnMode(TurnMode mode, string by) => Run(() =>
+    {
+        _room.SetTurnMode(mode, by);
+        return TurnsNow();
+    });
+
+    /// <summary>Calls on a raised hand: the named participant's, or the first one up.</summary>
+    public SpeechView CallOn(string? participant, string by) => Run(() => View(_speeches[_room.CallOn(participant, by).SpeechId]));
+
+    public TurnsView Turns()
+    {
+        lock (_gate) return TurnsNow();
+    }
+
+    private TurnsView TurnsNow() =>
+        new(_room.TurnMode, _room.Hands.Select(h => new HandView(h.SpeechId, h.Participant, _speeches[h.SpeechId].Text)).ToList());
 
     public void WithdrawSpeech(string @as, string speechId) => Run(() =>
     {
@@ -250,7 +288,7 @@ public sealed class RoomService
             return new RoomStatus(
                 _room.Participants.Select(p => new ParticipantView(p.Name, p.Voice, p.LastSeen, _openWaits.ContainsKey(p.Name))).ToList(),
                 _room.Listening, _room.Mode, _room.WakeWord, _room.Focus, _room.UserSpeaking,
-                _room.FloorHolder, _room.FloorQueue.ToList(), _room.UtteranceCount);
+                _room.FloorHolder, _room.FloorQueue.ToList(), _room.UtteranceCount, _room.TurnMode, _room.Hands.ToList());
     }
 
     /// <summary>Utterances after <paramref name="after"/> (an utterance id), without waiting.</summary>
@@ -313,6 +351,7 @@ public sealed class RoomService
     /// <summary>The render side played the last sample of the speech.</summary>
     public void PlaybackDrained(string speechId) => Run(() =>
     {
+        if (_announcing == speechId) _announcing = null;
         if (!_speeches.TryGetValue(speechId, out var speech) || speech.State != SpeechState.Playing) return;
         speech.Finish();
         _room.ReleaseFloor(speechId, _clock.Now);
@@ -370,10 +409,45 @@ public sealed class RoomService
                 var request = new PlaybackRequest(speech.Id, VoiceOf(speech.Participant), speech.Sentences);
                 _effects.Add(() => _playback.Play(request));
                 break;
-            case SpeechQueued or PlaybackFinished or SpeechInterrupted or SpeechWithdrawn:
+            case HandRaised:
+                _effects.Add(() => _playback.PlayEarcon(Earcon.HandRaised));
+                break;
+            case HandsAsked:
+                Announce(HandsSentence());
+                break;
+            case TurnModeChanged changed:
+                Announce(changed.Mode == TurnMode.HandsUp ? "Hands up." : _room.FloorQueue.Count > 0 ? "Open floor. Raised hands go in order." : "Open floor.");
+                _room.TryGrantFloor(_clock.Now);
+                break;
+            case SpeechQueued or PlaybackFinished or SpeechInterrupted or SpeechWithdrawn or HandCalledOn:
                 _room.TryGrantFloor(_clock.Now);
                 break;
         }
+    }
+
+    /// <summary>The room's spoken answer to "who has their hand up?".</summary>
+    private string HandsSentence()
+    {
+        var names = _room.Hands.Select(h => h.Participant).ToList();
+        return names.Count switch
+        {
+            0 => _room.TurnMode == TurnMode.HandsUp ? "No hands are up." : "No hands are up. The floor is open.",
+            1 => $"{names[0]} has a hand up.",
+            _ => $"{string.Join(", ", names.Take(names.Count - 1))} and {names[^1]} have hands up. {names[0]} was first.",
+        };
+    }
+
+    /// <summary>
+    /// The room speaking for itself, in a voice no agent is using. It does not take the floor; the render side
+    /// plays it in turn and the room ignores its progress reports, since no speech has its id.
+    /// </summary>
+    private void Announce(string text)
+    {
+        var id = $"room{++_announcementCounter}";
+        _announcing = id;
+        var voice = _room.Settings.Voices.FirstOrDefault(v => _room.Participants.All(p => p.Voice != v)) ?? _room.Settings.Voices.LastOrDefault() ?? "default";
+        var request = new PlaybackRequest(id, voice, SpokenText.Sentences(text));
+        _effects.Add(() => _playback.Play(request));
     }
 
     /// <summary>
@@ -382,6 +456,11 @@ public sealed class RoomService
     /// </summary>
     private void BargeIn()
     {
+        if (_announcing is { } announcement)
+        {
+            _announcing = null;
+            _effects.Add(() => _playback.Stop(announcement));
+        }
         if (_room.FloorHolder is not { } holder) return;
         var speech = _speeches[holder.SpeechId];
         if (speech.State == SpeechState.Playing) speech.Interrupt();
@@ -393,10 +472,11 @@ public sealed class RoomService
     /// <summary>
     /// You said something new: every speech still waiting was written before it, so withdraw them all and let
     /// each agent decide whether to say it again. Noise and coughs (no utterance) leave the queue alone.
+    /// Raised hands stay up: the agent sees the utterance in its inbox and keeps its hand current instead.
     /// </summary>
     private void WithdrawStaleSpeech()
     {
-        foreach (var s in _speeches.Values.Where(s => s.State == SpeechState.Queued).ToList())
+        foreach (var s in _speeches.Values.Where(s => s.State == SpeechState.Queued && !_room.IsHand(s.Id)).ToList())
         {
             s.Withdraw(s.Participant, WithdrawReason.UserSpoke);
             _room.ReleaseFloor(s.Id, _clock.Now);
@@ -475,5 +555,5 @@ public sealed class RoomService
 
     private static HandoffView View(Handoff h) => new(h.Id, h.From, h.Text, h.UtteranceId, h.Status, h.Notes.ToList());
 
-    private static SpeechView View(Speech s) => new(s.Id, s.Participant, s.Text, s.State, s.ReplyTo, s.HeardThrough, s.HeardText);
+    private SpeechView View(Speech s) => new(s.Id, s.Participant, s.Text, s.State, s.ReplyTo, s.HeardThrough, s.HeardText, _room.IsHand(s.Id));
 }

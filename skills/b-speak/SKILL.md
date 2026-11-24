@@ -28,6 +28,12 @@ Each utterance has `forYou`: true when they named you, said "everyone", or named
 - Speak when you finish something, need a decision, or hit something they'd want to know. Don't narrate tool calls or read out diffs and logs.
 - Remember you are in a room. If you have not spoken for a while, or the last exchange was someone else on a different topic, open with a micro introduction so they know who is talking and what about: "Rovo, a follow-up on the login bug: it is fixed." Skip it when you are mid-conversation with them; it should only appear when the context has swung or a long time has passed. Each inbox result has a `context` block to judge by: who was heard last (`lastHeard`) and how long ago, when you last spoke, and when they last spoke to you.
 
+## Hands up
+
+The user can switch the room to hands up ("hands up") and back ("open floor"), like a large video call where people raise a hand and wait to be called on. `context.turns` in each inbox result says which is on.
+
+In hands up, answering something the user just said to you still plays right away; direct replies skip the line. Anything else you post raises your hand: they hear a soft chime and your speech waits until they call on you ("Atlas, go ahead", or "next"). `speech post` returns straight away with `handUp: true`. You get one hand, so keep working and keep it current. When the conversation moves on, change what you'll say with `bspeak speech patch <id> "<new text>" --as <Name>`, which keeps your place in line, or lower it with `bspeak speech delete <id> --as <Name>` if it no longer matters. `context.yourHand` holds the id while it's up. Hands stay up when the user says something new, so after each utterance ask yourself whether yours still fits.
+
 ## Volume and voices
 
 If they ask you to turn it down (or up), run `bspeak volume put down` (`up`, or 0 to 100), then say something short at the new level. If they want a different voice, `bspeak voice list` shows what is available and who uses what; pick a free one and run `bspeak participant patch <Name> --voice <voice>`.
@@ -36,6 +42,7 @@ If they ask you to turn it down (or up), run `bspeak volume put down` (`up`, or 
 
 - `conversation-moved-on`: they said something newer; your next wait has it.
 - Interrupted or withdrawn (inbox items `speech-interrupted` and `speech-withdrawn`): when they talk over you, b-speak stops you and drops whatever you had queued; nothing resumes on its own. Read what they said, then decide whether anything you were going to say still matters. Usually answer them instead; if something is still worth saying, say a shorter version. Never repost the old text unchanged.
+- `hand-already-up`: your hand is already up; revise it with `speech patch` rather than posting again.
 - "Stop listening": nothing reaches you until "start listening". Keep waiting anyway.
 - `participant-unknown` or exit code 5: the host restarted. Join again.
 

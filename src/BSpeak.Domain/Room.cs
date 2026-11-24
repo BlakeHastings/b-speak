@@ -2,6 +2,9 @@ namespace BSpeak.Domain;
 
 public enum ListeningMode { Always, WakeWord }
 
+/// <summary>Open: agents speak in turn as soon as the floor is free. HandsUp: they raise a hand and wait to be called on.</summary>
+public enum TurnMode { Open, HandsUp }
+
 /// <param name="UserGap">How long after you stop speaking, or after a speech ends, before the floor goes to the next agent.</param>
 /// <param name="IdleTimeout">How long a participant may go without calling in before it is removed.</param>
 /// <param name="Voices">TTS voices handed out to participants in order.</param>
@@ -44,6 +47,7 @@ public sealed class Room(RoomSettings? settings = null) : AggregateRoot, IRoomVi
 {
     private readonly List<Participant> _participants = [];
     private readonly List<FloorSlot> _queue = [];
+    private readonly List<FloorSlot> _hands = [];
     private readonly Dictionary<string, int> _lastRelevant = new(StringComparer.Ordinal);
     private int _voiceCursor;
     private DateTimeOffset? _floorFreedAt;
@@ -62,6 +66,11 @@ public sealed class Room(RoomSettings? settings = null) : AggregateRoot, IRoomVi
     public int UtteranceCount { get; private set; }
     public FloorSlot? FloorHolder { get; private set; }
     public IReadOnlyList<FloorSlot> FloorQueue => _queue;
+
+    public TurnMode TurnMode { get; private set; } = TurnMode.Open;
+
+    /// <summary>Raised hands in the order they went up. Each waits to be called on; none is granted the floor by itself.</summary>
+    public IReadOnlyList<FloorSlot> Hands => _hands;
 
     // ---------- participants
 
@@ -213,7 +222,30 @@ public sealed class Room(RoomSettings? settings = null) : AggregateRoot, IRoomVi
             text = rest;
         }
 
+        switch (TurnPhrases.Match(text))
+        {
+            case TurnAction.HandsUp:
+                if (TurnMode == TurnMode.HandsUp) Raise(new UtteranceDiscarded(DiscardReason.Control));
+                else SetTurnMode(TurnMode.HandsUp, "voice");
+                return;
+            case TurnAction.OpenFloor:
+                if (TurnMode == TurnMode.Open) Raise(new UtteranceDiscarded(DiscardReason.Control));
+                else SetTurnMode(TurnMode.Open, "voice");
+                return;
+            case TurnAction.AskHands:
+                Raise(new HandsAsked());
+                return;
+            case TurnAction.Next when _hands.Count > 0:
+                CallOn(null, "voice");
+                return;
+        }
+
         var addressed = AddressResolver.Resolve(text, _participants.Select(p => p.Name));
+        if (addressed is not null && _hands.Any(h => h.Participant == addressed) && TurnPhrases.IsGoAhead(text, addressed))
+        {
+            CallOn(addressed, "voice");
+            return;
+        }
         if (addressed is not null && addressed != AddressResolver.Everyone) Focus = addressed;
 
         var id = ++UtteranceCount;
@@ -227,11 +259,76 @@ public sealed class Room(RoomSettings? settings = null) : AggregateRoot, IRoomVi
 
     // ---------- the floor
 
-    public void RequestFloor(string speechId, string participant)
+    /// <summary>
+    /// A reply to the newest thing said to this participant (addressed to it, to everyone, or while it held focus).
+    /// Direct replies skip the line in hands-up mode: you asked, so the answer needs no hand.
+    /// </summary>
+    public bool IsDirectReply(string participant, int? replyTo) =>
+        replyTo is int r && Find(participant) is { } p && _lastRelevant.TryGetValue(p.Name, out var latest) && latest == r;
+
+    /// <summary>
+    /// Whether a new speech from this participant raises a hand rather than joining the line: true in hands-up
+    /// mode unless it is a direct reply. Throws hand-already-up when it would raise a second hand.
+    /// </summary>
+    public bool RaisesHand(string participant, int? replyTo)
     {
         var p = Require(participant);
-        if (FloorHolder?.SpeechId == speechId || _queue.Any(s => s.SpeechId == speechId)) return;
-        _queue.Add(new FloorSlot(speechId, p.Name));
+        if (TurnMode != TurnMode.HandsUp || IsDirectReply(p.Name, replyTo)) return false;
+        if (_hands.FirstOrDefault(h => h.Participant == p.Name) is { } hand)
+            throw new DomainViolation("hand-already-up",
+                $"Your hand is already up with {hand.SpeechId}. Change what you will say with speech patch {hand.SpeechId}, or lower your hand with speech delete {hand.SpeechId}.");
+        return true;
+    }
+
+    /// <param name="asHand">Raise a hand and wait to be called on (see <see cref="RaisesHand"/>) instead of joining the line.</param>
+    public void RequestFloor(string speechId, string participant, bool asHand = false)
+    {
+        var p = Require(participant);
+        if (FloorHolder?.SpeechId == speechId || _queue.Any(s => s.SpeechId == speechId) || _hands.Any(s => s.SpeechId == speechId)) return;
+        if (asHand)
+        {
+            _hands.Add(new FloorSlot(speechId, p.Name));
+            Raise(new HandRaised(speechId, p.Name));
+        }
+        else _queue.Add(new FloorSlot(speechId, p.Name));
+    }
+
+    public bool IsHand(string speechId) => _hands.Any(h => h.SpeechId == speechId);
+
+    public bool IsGranted(string speechId) => FloorHolder?.SpeechId == speechId;
+
+    /// <summary>
+    /// Calls on a raised hand: the named participant's, or the one that went up first. It moves to the front of
+    /// the line and plays as soon as the floor is free.
+    /// </summary>
+    public FloorSlot CallOn(string? participant, string by)
+    {
+        if (_hands.Count == 0) throw new DomainViolation("no-hands", "Nobody has a hand up.");
+        var slot = participant is null
+            ? _hands[0]
+            : _hands.FirstOrDefault(h => h.Participant == Require(participant).Name)
+              ?? throw new DomainViolation("hand-not-up", $"{Require(participant).Name} does not have a hand up.");
+        _hands.Remove(slot);
+        _queue.Insert(0, slot);
+        Raise(new HandCalledOn(slot.SpeechId, slot.Participant, by));
+        return slot;
+    }
+
+    /// <summary>
+    /// Switches between an open floor and hands up. Going back to an open floor lowers every hand into the line,
+    /// in the order they went up, so nothing anyone was waiting to say is lost.
+    /// </summary>
+    public void SetTurnMode(TurnMode mode, string by)
+    {
+        if (!Enum.IsDefined(mode)) throw new DomainViolation("turn-mode-invalid", "Turn mode must be open or hands-up.");
+        if (mode == TurnMode) return;
+        if (mode == TurnMode.Open)
+        {
+            _queue.AddRange(_hands);
+            _hands.Clear();
+        }
+        TurnMode = mode;
+        Raise(new TurnModeChanged(mode, by));
     }
 
     /// <summary>
@@ -260,7 +357,11 @@ public sealed class Room(RoomSettings? settings = null) : AggregateRoot, IRoomVi
             FloorHolder = null;
             _floorFreedAt = now;
         }
-        else _queue.RemoveAll(s => s.SpeechId == speechId);
+        else
+        {
+            _queue.RemoveAll(s => s.SpeechId == speechId);
+            _hands.RemoveAll(s => s.SpeechId == speechId);
+        }
     }
 
     /// <summary>Puts a granted speech that never started playing back at the front of the queue.</summary>

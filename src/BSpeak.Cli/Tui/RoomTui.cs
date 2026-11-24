@@ -156,6 +156,19 @@ public static class RoomTui
                     case '-' or '_':
                         await c.RawAsync(HttpMethod.Put, "/api/volume", new { step = "down" });
                         break;
+                    case 'h' or 'H':
+                        string mode;
+                        lock (gate) mode = screen.Turns == "hands-up" ? "open" : "hands-up";
+                        await c.RawAsync(HttpMethod.Put, "/api/turns", new { mode });
+                        break;
+                    case 'n' or 'N':
+                        await c.RawAsync(HttpMethod.Post, "/api/turns/call", new { by = "the room view" });
+                        break;
+                    case >= '1' and <= '9':
+                        string? who;
+                        lock (gate) who = screen.HandOrder.ElementAtOrDefault(key.KeyChar - '1');
+                        if (who is not null) await c.RawAsync(HttpMethod.Post, "/api/turns/call", new { name = who, by = "the room view" });
+                        break;
                 }
             }
             catch (HostUnavailableException) { }

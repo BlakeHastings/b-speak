@@ -104,7 +104,11 @@ public static class Cli
                                                            Say something; --wait blocks until it played or was interrupted
           speech get <id> [--wait]
           speech list [--as <name>]
-          speech delete <id> --as <name>                   Withdraw a speech that has not played yet
+          speech patch <id> "<text>" --as <name>          Change what a waiting speech (or raised hand) will say; keeps its place
+          speech delete <id> --as <name>                   Withdraw a speech that has not played yet, or lower your hand
+          turns get                                        Turn mode (open or hands-up) and the raised hands, in order
+          turns put open|hands-up                          Same as saying "open floor" / "hands up"
+          turns call [<name>]                              Call on a raised hand (the first one up when no name is given)
           listening get
           listening put on|off [--as <name>]               Same as saying "start listening" / "stop listening"
           listening patch --mode always|wake-word [--wake-word "<phrase>"]
@@ -182,7 +186,11 @@ public static class Cli
             ("speech", "post") => await SpeakAsync(client, args),
             ("speech", "get") => await SpeechGetAsync(client, args.Require(2, "speech id"), args),
             ("speech", "list") => await client.SendAsync(HttpMethod.Get, $"/api/speech{Query(("as", args.Get("as")))}"),
-            ("speech", "delete") => await client.SendAsync(HttpMethod.Delete, $"/api/speech/{Uri.EscapeDataString(args.Require(2, "speech id"))}{Query(("as", args.As))}"),
+            ("speech", "patch") => await client.SendAsync(HttpMethod.Patch, $"/api/speech/{Uri.EscapeDataString(args.Require(2, "speech id"))}", new { @as = args.As, text = args.Require(3, "what to say instead, in quotes") }),
+            ("turns", "get") => await client.SendAsync(HttpMethod.Get, "/api/turns"),
+            ("turns", "put") => await client.SendAsync(HttpMethod.Put, "/api/turns", new { mode = TurnMode(args.Require(2, "open or hands-up")), @as = args.Get("as") }),
+            ("turns", "call") => await client.SendAsync(HttpMethod.Post, "/api/turns/call", new { name = args.Positional.Count > 2 ? args.Positional[2] : null, by = args.Get("as") }),
+            ("speech", "delete") =>await client.SendAsync(HttpMethod.Delete, $"/api/speech/{Uri.EscapeDataString(args.Require(2, "speech id"))}{Query(("as", args.As))}"),
             ("listening", "get") => await client.SendAsync(HttpMethod.Get, "/api/listening"),
             ("listening", "put") => await client.SendAsync(HttpMethod.Put, "/api/listening", new { on = OnOff(args.Require(2, "on or off")), @as = args.Get("as") }),
             ("listening", "patch") => await client.SendAsync(HttpMethod.Patch, "/api/listening", new { mode = args.Get("mode") ?? throw new UsageException("--mode is required."), wakeWord = args.Get("wake-word") }),
@@ -202,6 +210,13 @@ public static class Cli
     {
         "up" or "down" => new { step = value.ToLowerInvariant() },
         _ => int.TryParse(value.TrimEnd('%'), out var n) && n is >= 0 and <= 100 ? new { volume = (int?)n } : throw new UsageException("Volume is a number from 0 to 100, or up or down."),
+    };
+
+    private static string TurnMode(string value) => value.ToLowerInvariant() switch
+    {
+        "open" or "open-floor" => "open",
+        "hands-up" or "hands" or "handsup" => "hands-up",
+        _ => throw new UsageException("Use 'open' or 'hands-up'."),
     };
 
     private static bool OnOff(string value) => value.ToLowerInvariant() switch
@@ -241,8 +256,10 @@ public static class Cli
     {
         var body = new { @as = args.As, text = args.Require(2, "what to say, in quotes"), replyTo = args.Int("reply-to") };
         if (!args.Has("wait")) return await client.SendAsync(HttpMethod.Post, "/api/speech", body);
-        var (status, response) = await client.RawAsync(HttpMethod.Post, $"/api/speech?wait={HostApp.MaxWait.TotalSeconds}", body);
+        var (status, response) = await client.RawAsync(HttpMethod.Post, "/api/speech", body);
         if (status != HttpStatusCode.OK) return client.Print(status, response);
+        // A raised hand waits for the user, maybe for minutes: return now rather than block the agent.
+        if (JsonNode.Parse(response)?["handUp"]?.GetValue<bool>() == true) return client.Print(status, response);
         return await SpeechGetAsync(client, JsonNode.Parse(response)!["id"]!.GetValue<string>(), args, response);
     }
 

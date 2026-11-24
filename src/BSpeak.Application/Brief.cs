@@ -30,6 +30,7 @@ public static class Brief
         sb.AppendLine($"- Participants: {(room.Participants.Count == 0 ? "none" : string.Join(", ", room.Participants.Select(p => $"{p.Name}{(p.Waiting ? " (listening)" : "")}")))}");
         sb.AppendLine($"- Listening: {(room.Listening ? "on" : "paused. The user said \"stop listening\"; nothing they say reaches you until they say \"start listening\"")}");
         sb.AppendLine($"- Mode: {(room.Mode == ListeningMode.WakeWord ? $"wake word \"{room.WakeWord}\"" : "always")}");
+        sb.AppendLine($"- Turns: {(room.Turns == TurnMode.HandsUp ? $"hands up ({(room.Hands.Count == 0 ? "none raised yet" : "raised, in order: " + string.Join(", ", room.Hands.Select(h => h.Participant)))})" : "open floor")}");
         sb.AppendLine($"- Focus: {room.Focus ?? "nobody"}");
         if (volume is { } v) sb.AppendLine($"- Volume: {v}%");
         sb.AppendLine($"- Utterances so far: {room.Utterances}");
@@ -53,6 +54,14 @@ public static class Brief
             - Answer what is `forYou`. Stay quiet about the rest unless it is clearly about your work.
             - You get focus when the user names you and when you speak. The room gives the floor to one agent at a time, in order, and never while the user is talking, so just post and let the room schedule it.
 
+            ## Hands up
+
+            The user can switch the room to hands up ("hands up") and back ("open floor"), like a big video call. Your inbox `context.turns` says which is on.
+
+            - In hands up, a reply to something the user just said to you still plays straight away. Anything else you post raises your hand instead: the user hears a soft chime and the speech waits until they call on you ("Atlas, go ahead", "next", or from the room view). `speech post` returns at once with `handUp: true`.
+            - You get one hand. Keep working, and keep it current: when the conversation moves on, change what you will say with `bspeak speech patch <id> "<new text>" --as <Name>` (it keeps your place), or lower it with `bspeak speech delete <id> --as <Name>` if it no longer matters. `context.yourHand` holds the id while it is up. When you are called on, the latest text plays.
+            - Hands stay up when the user says something new, so after every utterance glance at your hand and ask whether it still fits.
+
             ## How to speak
 
             - Talk like a person on a call: one to three short sentences in plain words. No Markdown, lists, code, file paths or URLs. The room rejects Markdown and raw URLs.
@@ -70,6 +79,7 @@ public static class Brief
 
             - `conversation-moved-on`: the user said something newer to you. Your next inbox wait returns it; answer that instead.
             - `speech-markdown`, `speech-too-long`: rewrite it as speech and post again.
+            - `hand-already-up`: your hand is up already. Revise it with `speech patch` instead of posting again.
             - Interrupted or withdrawn: when the user talks over you, the room stops your speech and withdraws anything else you had waiting; it never resumes on its own. Your inbox says so (`speech-interrupted` with what they heard and what they did not, `speech-withdrawn` with the text that never played). Read what they said first, then decide: answer that, say a shortened version of what is still worth saying, or drop it. Do not repost the old text as it was.
             - `participant-unknown`, or exit code 5: the host restarted or dropped you. Join again.
             """);

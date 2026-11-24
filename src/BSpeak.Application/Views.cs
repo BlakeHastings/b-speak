@@ -35,14 +35,23 @@ public sealed record InboxBatch(IReadOnlyList<InboxItem> Items, long Next, bool 
 /// <param name="LastHeard">"user" or the agent heard most recently; null when nobody has spoken yet.</param>
 /// <param name="YouLastSpokeSecondsAgo">When you last finished (or were cut off) speaking; null if you have not spoken.</param>
 /// <param name="LastSpokeToYouSecondsAgo">When the user last said something meant for you.</param>
-public sealed record RoomContext(string? LastHeard, int? LastHeardSecondsAgo, int? YouLastSpokeSecondsAgo, int? LastSpokeToYouSecondsAgo);
+/// <param name="Turns">open: speak when the floor is free. hands-up: a new speech raises your hand until the user calls on you (direct replies skip the line).</param>
+/// <param name="YourHand">The speech id of your raised hand, if it is up. Keep it current with speech patch, or lower it with speech delete.</param>
+public sealed record RoomContext(string? LastHeard, int? LastHeardSecondsAgo, int? YouLastSpokeSecondsAgo, int? LastSpokeToYouSecondsAgo,
+    TurnMode Turns = TurnMode.Open, string? YourHand = null);
+
+/// <summary>A raised hand: who, and what they will say when called on.</summary>
+public sealed record HandView(string SpeechId, string Participant, string Text);
+
+public sealed record TurnsView(TurnMode Mode, IReadOnlyList<HandView> Hands);
 
 /// <param name="ForYou">Addressed to you, to everyone, or unaddressed while you held focus.</param>
 public sealed record UtteranceView(int Id, string Text, string? AddressedTo, string? Focus, bool ForYou, DateTimeOffset At);
 
 public sealed record UtteranceBatch(IReadOnlyList<UtteranceView> Utterances, bool TimedOut);
 
-public sealed record SpeechView(string Id, string Participant, string Text, SpeechState State, int? ReplyTo, int HeardThrough, string HeardText);
+/// <param name="HandUp">The speech is a raised hand, waiting to be called on.</param>
+public sealed record SpeechView(string Id, string Participant, string Text, SpeechState State, int? ReplyTo, int HeardThrough, string HeardText, bool HandUp = false);
 
 /// <param name="Waiting">True while the participant has an utterance wait open.</param>
 public sealed record ParticipantView(string Name, string Voice, DateTimeOffset LastSeen, bool Waiting);
@@ -56,4 +65,6 @@ public sealed record RoomStatus(
     bool UserSpeaking,
     FloorSlot? Floor,
     IReadOnlyList<FloorSlot> Queue,
-    int Utterances);
+    int Utterances,
+    TurnMode Turns,
+    IReadOnlyList<FloorSlot> Hands);

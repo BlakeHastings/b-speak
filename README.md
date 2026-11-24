@@ -29,7 +29,9 @@ The host checks for a new release once a day. When there is one, the agent's fir
 
 Start a sentence with an agent's name ("Atlas, run the tests") when more than one is in the room. Talk over an agent to interrupt it. Say "stop listening" to pause the microphone and "start listening" to resume; you hear a tone each time. Ask an agent to turn the volume down or up, or to use a different voice; it changes them for you, and both are remembered.
 
-To see the room, run `bspeak room tui` in a spare terminal. It shows who is in the room, who is talking, who is waiting to speak and what they want to say, and a running log of what was said. Space pauses or resumes listening, `+` and `-` change the volume, and `q` quits.
+With several agents, say "hands up" to stop them taking turns on their own. Each agent then raises a hand (you hear a soft chime) and waits until you call on it: "Atlas, go ahead", or "next" for whoever was first. Agents keep working while their hand is up and keep what they want to say current, so you never get a stale message. Answers to something you asked an agent skip the line. Ask "who has their hand up?" to hear the list, and say "open floor" to go back.
+
+To see the room, run `bspeak room tui` in a spare terminal. It shows who is in the room, who is talking, who has a hand up and what they want to say, and a running log of what was said. Space pauses or resumes listening, `+` and `-` change the volume, `h` switches between hands up and an open floor, number keys (or `n` for next) call on a hand, and `q` quits.
 
 The usual setup pairs a quick conversational agent with a deeper one working in the background, so the conversation never waits on a long tool call. The skill and `bspeak brief get` describe it.
 

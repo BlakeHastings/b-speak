@@ -62,6 +62,24 @@ nova_voice=$("$B" voice list | grep -B1 '"usedBy": "Nova"' | grep -o '"name": "[
 "$B" participant patch Atlas --voice "$nova_voice" > /dev/null; check 1 $? "a voice someone else uses is refused"
 free_voice=$("$B" voice list | grep -B1 '"usedBy": null' | grep -o '"name": "[^"]*"' | head -1 | cut -d'"' -f4)
 "$B" participant patch Atlas --voice "$free_voice" | grep -q "\"voice\": \"$free_voice\""; check 0 $? "an agent can switch to a free voice"
+
+# Hands up: agents raise a hand and wait to be called on; direct replies skip the line.
+"$B" utterance post "Hands up." > /dev/null
+"$B" turns get | grep -q '"mode": "hands-up"'; check 0 $? "saying hands up switches the room"
+"$B" speech post "One thing on the schema." --as Nova --wait --timeout 20 > "$BSPEAK_HOME/hand.json"; check 0 $? "speech post --wait returns at once for a raised hand"
+grep -q '"handUp": true' "$BSPEAK_HOME/hand.json"; check 0 $? "the speech is a raised hand"
+hand=$(grep -o '"id": "s[0-9]*"' "$BSPEAK_HOME/hand.json" | cut -d'"' -f4)
+"$B" speech post "Another thing." --as Nova > /dev/null; check 1 $? "a second hand is refused (hand-already-up)"
+"$B" speech patch "$hand" "Schema is settled, but one thing on naming." --as Nova | grep -q "naming"; check 0 $? "a raised hand can be revised"
+"$B" utterance post "Atlas, what is the build status?" > /dev/null
+"$B" turns get | grep -q "\"speechId\": \"$hand\""; check 0 $? "hands stay up when you say something new"
+uid=$("$B" utterance list --as Atlas --after 0 | grep -o '"id": [0-9]*' | tail -1 | grep -o '[0-9]*$')
+"$B" speech post "Green." --as Atlas --reply-to "$uid" | grep -q '"handUp": false'; check 0 $? "a direct reply skips the line"
+"$B" room tui --once | grep -q "hand up"; check 0 $? "room view shows the raised hand"
+"$B" utterance post "Nova, go ahead." > /dev/null
+"$B" speech get "$hand" --wait --timeout 20 > "$BSPEAK_HOME/called.json"; check 0 $? "calling on a hand plays it"
+grep -q "naming" "$BSPEAK_HOME/called.json"; check 0 $? "it plays the latest text"
+"$B" turns put open | grep -q '"mode": "open"'; check 0 $? "back to an open floor"
 "$B" host delete > /dev/null; check 0 $? "stop the host"
 rm -rf "$BSPEAK_HOME"
 exit $fail

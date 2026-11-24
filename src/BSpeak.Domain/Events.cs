@@ -54,3 +54,13 @@ public sealed record PlaybackStarted(string SpeechId, string Participant, string
 public sealed record PlaybackFinished(string SpeechId, string Participant) : DomainEvent { public override string Stream => $"speech:{SpeechId}"; }
 public sealed record SpeechInterrupted(string SpeechId, string Participant, int HeardThrough, string HeardText) : DomainEvent { public override string Stream => $"speech:{SpeechId}"; }
 public sealed record SpeechWithdrawn(string SpeechId, string Participant, WithdrawReason Reason) : DomainEvent { public override string Stream => $"speech:{SpeechId}"; }
+
+// Hands up
+public sealed record TurnModeChanged(TurnMode Mode, string By) : DomainEvent { public override string Stream => "room"; }
+public sealed record HandRaised(string SpeechId, string Participant) : DomainEvent { public override string Stream => "room"; }
+public sealed record HandCalledOn(string SpeechId, string Participant, string By) : DomainEvent { public override string Stream => "room"; }
+
+/// <summary>You asked who has a hand up; the room answers out loud.</summary>
+public sealed record HandsAsked : DomainEvent { public override string Stream => "room"; }
+
+public sealed record SpeechRevised(string SpeechId, string Participant, string Text) : DomainEvent { public override string Stream => $"speech:{SpeechId}"; }

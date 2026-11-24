@@ -29,6 +29,72 @@ public sealed record ControlPhrases(IReadOnlyList<string> Pause, IReadOnlyList<s
     }
 }
 
+public enum TurnAction { HandsUp, OpenFloor, AskHands, Next }
+
+/// <summary>
+/// The phrases for taking turns: switching to hands up or back to an open floor, asking who has a hand up,
+/// and calling on someone ("next", "Atlas, go ahead"). Only a whole utterance that is just the phrase counts.
+/// </summary>
+public static class TurnPhrases
+{
+    private static readonly HashSet<string> LeadingFiller = ["ok", "okay", "hey", "please", "now", "so", "alright", "and", "um", "uh", "oh", "yes", "yeah"];
+    private static readonly HashSet<string> TrailingFiller = ["please", "now", "thanks", "then"];
+
+    private static readonly Dictionary<string, TurnAction> Room = new()
+    {
+        ["hands up"] = TurnAction.HandsUp,
+        ["hands up mode"] = TurnAction.HandsUp,
+        ["raise your hands"] = TurnAction.HandsUp,
+        ["raise hands"] = TurnAction.HandsUp,
+        ["open floor"] = TurnAction.OpenFloor,
+        ["open floor mode"] = TurnAction.OpenFloor,
+        ["open mode"] = TurnAction.OpenFloor,
+        ["hands down"] = TurnAction.OpenFloor,
+        ["who has their hand up"] = TurnAction.AskHands,
+        ["who has a hand up"] = TurnAction.AskHands,
+        ["who's got their hand up"] = TurnAction.AskHands,
+        ["who has hands up"] = TurnAction.AskHands,
+        ["whose hand is up"] = TurnAction.AskHands,
+        ["any hands"] = TurnAction.AskHands,
+        ["any hands up"] = TurnAction.AskHands,
+        ["who wants to talk"] = TurnAction.AskHands,
+        ["next"] = TurnAction.Next,
+        ["next hand"] = TurnAction.Next,
+        ["next one"] = TurnAction.Next,
+        ["who's next"] = TurnAction.Next,
+        ["go ahead"] = TurnAction.Next,
+    };
+
+    /// <summary>What may follow a name to call on that participant: "Atlas, go ahead". Nothing at all counts too.</summary>
+    private static readonly HashSet<string> GoAhead =
+    [
+        "", "go ahead", "go", "go for it", "you're up", "youre up", "your turn", "you have the floor", "what is it",
+        "what's up", "whats up", "what do you have", "what have you got", "what've you got", "yes", "yeah", "you had your hand up",
+    ];
+
+    private static string Core(IEnumerable<string> words)
+    {
+        var w = words.ToList();
+        while (w.Count > 0 && LeadingFiller.Contains(w[0])) w.RemoveAt(0);
+        if (w.Count >= 2 && w[^2] == "thank" && w[^1] == "you") w.RemoveRange(w.Count - 2, 2);
+        while (w.Count > 0 && TrailingFiller.Contains(w[^1])) w.RemoveAt(w.Count - 1);
+        return string.Join(' ', w);
+    }
+
+    public static TurnAction? Match(string utterance) =>
+        Room.TryGetValue(Core(Words.Split(utterance)), out var action) ? action : null;
+
+    /// <summary>True when the utterance is just <paramref name="name"/>, or the name and a go-ahead ("Atlas, go ahead").</summary>
+    public static bool IsGoAhead(string utterance, string name)
+    {
+        var words = Words.Split(utterance).ToList();
+        while (words.Count > 0 && LeadingFiller.Contains(words[0])) words.RemoveAt(0);
+        var nameWords = Words.Split(name).Length;
+        if (words.Count < nameWords) return false;
+        return GoAhead.Contains(Core(words.Skip(nameWords)));
+    }
+}
+
 /// <summary>Works out who an utterance is addressed to from how it starts: "Atlas, run the tests".</summary>
 public static class AddressResolver
 {

@@ -98,6 +98,20 @@ public sealed class OnsetFadeTests
     }
 }
 
+public sealed class EarconTests
+{
+    [Fact]
+    public void The_hand_chime_is_short_quiet_starts_and_ends_at_silence_and_differs_from_the_listening_tones()
+    {
+        var chime = Earcons.Render(BSpeak.Application.Earcon.HandRaised, 48_000);
+        var paused = Earcons.Render(BSpeak.Application.Earcon.ListeningPaused, 48_000);
+        Assert.InRange(chime.Length / 48_000.0, 0.2, 0.5);
+        Assert.InRange(chime.Max(Math.Abs), 0.05f, 0.2f);
+        Assert.True(Math.Abs(chime[0]) < 0.001 && Math.Abs(chime[^1]) < 0.001, "no click at either end");
+        Assert.NotEqual(paused.Length, chime.Length);
+    }
+}
+
 public sealed class TranscriptCleanerTests
 {
     [Theory]
