@@ -220,6 +220,13 @@ An optional queue for passing work between agents. `Post` needs a participant in
 
 `skills/b-speak/SKILL.md` covers joining, listening, speaking, the usual two-agent setup, and recovering when the room pushes back. The harness-neutral version lives in `bspeak brief get`.
 
+## Releases and updates
+
+- **Versions** come from git tags (MinVer). Pushing a tag like `v0.2.0` runs the release workflow: self-contained builds for win-x64, linux-x64 and osx-arm64, each with the skill and a `bspeak.release` marker, plus `SHA256SUMS`.
+- **Installing**: `install.ps1` and `install.sh` download the latest release, verify its checksum, and put `bspeak` on the PATH. `INSTALL.md` walks any agent through install, `bspeak setup` and `bspeak skill install`, so a user only pastes one line.
+- **Checking**: the host asks GitHub for the latest release at most once a day, in the background. When a newer one exists, `bspeak brief get` opens with a notice telling the agent to ask the user.
+- **Updating**: `bspeak update` downloads the build for this platform, checks it against `SHA256SUMS`, stops the host, and swaps the files in place. Files that are in use (the CLI itself, an agent's open wait) are renamed aside instead of overwritten, which works on Windows too; leftovers are deleted on a later run. The skill is refreshed wherever `bspeak skill install` put it. Agents then rejoin the room. Source builds (no marker) are told to update with git instead.
+
 ## Not built yet
 
 - `provider put` and `device put`. Edit config.json for now.
