@@ -1,0 +1,10 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/BSpeak.Application/BSpeak.Application.csproj" />
+    <Project Path="src/BSpeak.Domain/BSpeak.Domain.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/BSpeak.Application.Tests/BSpeak.Application.Tests.csproj" />
+    <Project Path="tests/BSpeak.Domain.Tests/BSpeak.Domain.Tests.csproj" />
+  </Folder>
+</Solution>

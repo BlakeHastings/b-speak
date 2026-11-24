@@ -1,0 +1,710 @@
+<title>b-speak Domain Model</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Space+Grotesk:wght@500;600;700&display=swap">
+<style>
+/* Layout: same visual vocabulary as the b-learn model page. Where it runs, then the event-storming wall, the audio streams, a stepped room scenario, a catalog, open questions. */
+:root {
+  --bg: #f4f6f9; --panel: #ffffff; --fg: #18202b; --muted: #5a6474; --line: #c8cfda; --rule: #e3e7ee;
+  --cmd: #d3e5ff; --cmd-s: #2f6fd6;
+  --agg: #fff1b0; --agg-s: #b8940a;
+  --evt: #ffd5ad; --evt-s: #d86f12;
+  --pol: #e6d7ff; --pol-s: #7c4fe0;
+  --read: #cfeeda; --read-s: #23894a;
+  --ext: #ffd3e4; --ext-s: #c93a74;
+  --actor: #d3f0f3; --actor-s: #15808c;
+  --infra: #e8ebf0; --infra-s: #6f7889;
+  --hot: #ffdcdc; --hot-s: #c92f2f;
+  --voice: #c93a74; --cli: #2f6fd6; --host: #6f7889;
+  --display: "Space Grotesk", "Segoe UI", system-ui, sans-serif;
+  --body: "Inter", "Segoe UI", system-ui, sans-serif;
+  --mono: "JetBrains Mono", Consolas, ui-monospace, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #11151b; --panel: #181d25; --fg: #e5e9f0; --muted: #98a2b3; --line: #3a4250; --rule: #262d38;
+  --cmd: #15304f; --cmd-s: #5c9dff; --agg: #3a3212; --agg-s: #e2bd27; --evt: #42260d; --evt-s: #ff9640;
+  --pol: #2b2046; --pol-s: #a688ff; --read: #12341f; --read-s: #4cc47c; --ext: #44162a; --ext-s: #ff6ea5;
+  --actor: #0f343a; --actor-s: #3cc2ce; --infra: #232933; --infra-s: #8e98aa; --hot: #461919; --hot-s: #ff6b6b;
+  --voice: #ff6ea5; --cli: #5c9dff; --host: #8e98aa; color-scheme: dark;
+} }
+:root[data-theme="dark"] {
+  --bg: #11151b; --panel: #181d25; --fg: #e5e9f0; --muted: #98a2b3; --line: #3a4250; --rule: #262d38;
+  --cmd: #15304f; --cmd-s: #5c9dff; --agg: #3a3212; --agg-s: #e2bd27; --evt: #42260d; --evt-s: #ff9640;
+  --pol: #2b2046; --pol-s: #a688ff; --read: #12341f; --read-s: #4cc47c; --ext: #44162a; --ext-s: #ff6ea5;
+  --actor: #0f343a; --actor-s: #3cc2ce; --infra: #232933; --infra-s: #8e98aa; --hot: #461919; --hot-s: #ff6b6b;
+  --voice: #ff6ea5; --cli: #5c9dff; --host: #8e98aa; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--fg); font: 14px/1.55 var(--body); }
+.wrap { max-width: 1240px; margin: 0 auto; padding-block: 32px 64px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); display: grid; gap: 44px; }
+h1, h2, h3 { font-family: var(--display); text-wrap: balance; margin: 0; letter-spacing: -0.01em; }
+h1 { font-size: 30px; } h2 { font-size: 21px; } h3 { font-size: 15px; }
+p { margin: 0; max-width: 76ch; }
+code, .mono { font-family: var(--mono); font-size: 12.5px; }
+header { display: grid; gap: 10px; }
+.sub { color: var(--muted); }
+.counts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+.count { display: inline-flex; gap: 6px; align-items: baseline; padding: 4px 10px; border-radius: 6px; border: 1px solid var(--s); background: var(--f); font-size: 13px; }
+.count b { font-family: var(--display); font-size: 16px; font-variant-numeric: tabular-nums; }
+section { display: grid; gap: 14px; min-width: 0; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12.5px; color: var(--muted); }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.sw { width: 14px; height: 14px; border-radius: 3px; border: 1.5px solid var(--s); background: var(--f); }
+.sw.dash { border-style: dashed; }
+.chip { display: inline-block; font: 700 9.5px/1 var(--body); letter-spacing: 0.05em; padding: 3px 5px; border-radius: 3px; color: var(--panel); }
+.chip.voice { background: var(--voice); } .chip.cli { background: var(--cli); } .chip.host { background: var(--host); }
+.scroller { overflow-x: auto; background: var(--panel); border: 1px solid var(--rule); border-radius: 8px; }
+.scroller svg { display: block; }
+.hint { font-size: 12.5px; color: var(--muted); }
+.notes { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 10px; }
+.note { background: var(--panel); border: 1px solid var(--rule); border-radius: 8px; padding: 12px 14px; font-size: 13px; display: grid; gap: 4px; min-width: 0; }
+.note b { font-family: var(--display); font-size: 14px; }
+
+/* SVG shared */
+svg text { fill: var(--fg); font-family: var(--body); }
+svg .lbl { font-size: 12.5px; font-weight: 600; }
+svg .small { font-size: 10.5px; fill: var(--muted); }
+svg .mono { font-family: var(--mono); font-size: 10.5px; fill: var(--muted); }
+svg .lane-name { font-family: var(--display); font-size: 13px; font-weight: 600; fill: var(--muted); letter-spacing: 0.06em; text-transform: uppercase; }
+svg .colhead { font-family: var(--display); font-size: 11.5px; font-weight: 600; fill: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; }
+svg .lane-bg { fill: var(--bg); opacity: 0.6; }
+svg .node rect { stroke-width: 1.5; }
+svg .node { cursor: pointer; }
+svg .node:focus { outline: none; }
+svg .node:focus-visible rect.box, svg .node.sel rect.box { stroke-width: 3; }
+.k-cmd rect.box { fill: var(--cmd); stroke: var(--cmd-s); }
+.k-icmd rect.box { fill: var(--cmd); stroke: var(--cmd-s); stroke-dasharray: 5 3; }
+.k-agg rect.box { fill: var(--agg); stroke: var(--agg-s); }
+.k-evt rect.box { fill: var(--evt); stroke: var(--evt-s); }
+.k-pol rect.box { fill: var(--pol); stroke: var(--pol-s); }
+.k-read rect.box { fill: var(--read); stroke: var(--read-s); }
+.k-ext rect.box { fill: var(--ext); stroke: var(--ext-s); }
+.k-actor rect.box { fill: var(--actor); stroke: var(--actor-s); }
+.k-infra rect.box { fill: var(--infra); stroke: var(--infra-s); }
+svg .chipbg.voice { fill: var(--voice); } svg .chipbg.cli { fill: var(--cli); } svg .chipbg.host { fill: var(--host); }
+svg .chiptx { fill: var(--panel); font-size: 8.5px; font-weight: 700; letter-spacing: 0.04em; }
+svg path.edge { fill: none; stroke: var(--line); stroke-width: 1.4; }
+svg path.edge.back { stroke: var(--pol-s); stroke-dasharray: 5 4; opacity: 0.45; }
+svg path.edge.read { stroke: var(--read-s); opacity: 0.7; }
+svg marker path { fill: var(--line); }
+svg #arr-pol path { fill: var(--pol-s); }
+svg.dim .node, svg.dim path.edge { opacity: 0.16; transition: opacity .12s; }
+svg.dim .node.on, svg.dim path.edge.on { opacity: 1; }
+svg.dim path.edge.on { stroke-width: 1.8; }
+svg.dim path.edge.on:not(.back):not(.read) { stroke: var(--fg); }
+svg .band rect { fill: var(--infra); stroke: var(--infra-s); stroke-width: 1.2; }
+@media (prefers-reduced-motion: reduce) { svg.dim .node, svg.dim path.edge { transition: none; } }
+
+/* streaming + topology */
+svg .blk rect { stroke-width: 1.4; }
+svg .zone { fill: var(--bg); stroke: var(--rule); stroke-width: 1; }
+svg .zone-dash { fill: none; stroke: var(--muted); stroke-width: 1.2; stroke-dasharray: 6 4; }
+svg path.flow { fill: none; stroke: var(--muted); stroke-width: 1.5; }
+svg path.flow.audio { stroke: var(--actor-s); stroke-width: 2.2; }
+svg path.flow.signal { stroke: var(--evt-s); stroke-width: 1.6; }
+svg path.flow.cmd { stroke: var(--cmd-s); stroke-width: 1.6; }
+svg path.flow.flush { stroke: var(--hot-s); stroke-width: 1.6; stroke-dasharray: 5 4; }
+svg path.flow.later { stroke-dasharray: 6 4; }
+svg #ar-audio path { fill: var(--actor-s); } svg #ar-signal path { fill: var(--evt-s); } svg #ar-cmd path { fill: var(--cmd-s); }
+svg #ar-flush path { fill: var(--hot-s); } svg #ar-plain path { fill: var(--muted); }
+svg .flowlbl { font-size: 10.5px; fill: var(--muted); }
+svg .flowlbl.signal { fill: var(--evt-s); font-weight: 600; } svg .flowlbl.cmd { fill: var(--cmd-s); font-weight: 600; } svg .flowlbl.flush { fill: var(--hot-s); font-weight: 600; }
+
+/* detail panel */
+.detail { background: var(--panel); border: 1px solid var(--rule); border-radius: 8px; padding: 16px 18px; display: grid; gap: 8px; min-height: 92px; }
+.detail .kind { font: 600 11px/1 var(--body); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.detail dl { display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; margin: 0; }
+.detail dt { color: var(--muted); font-size: 12.5px; }
+.detail dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+
+/* scenario */
+.stepper { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.stepper button { font: 500 13px var(--body); padding: 6px 12px; border-radius: 6px; border: 1px solid var(--rule); background: var(--panel); color: var(--fg); cursor: pointer; }
+.stepper button:hover { border-color: var(--muted); }
+.stepper button:focus-visible, .tabs button:focus-visible { outline: 2px solid var(--cmd-s); outline-offset: 2px; }
+.stepper .pos { font-variant-numeric: tabular-nums; color: var(--muted); font-size: 13px; }
+svg .cell { cursor: pointer; }
+svg .cell rect { stroke-width: 1.3; }
+svg .c-user rect { fill: var(--ext); stroke: var(--ext-s); }
+svg .c-speak rect { fill: var(--actor); stroke: var(--actor-s); }
+svg .c-queued rect { fill: var(--panel); stroke: var(--actor-s); stroke-dasharray: 4 3; }
+svg .c-cut rect { fill: var(--hot); stroke: var(--hot-s); }
+svg .c-sys rect { fill: var(--infra); stroke: var(--infra-s); }
+svg .c-floor rect { fill: var(--agg); stroke: var(--agg-s); }
+svg .c-paused rect { fill: var(--hot); stroke: var(--hot-s); stroke-dasharray: 4 3; }
+svg .c-work rect { fill: var(--cmd); stroke: var(--cmd-s); }
+svg .c-quiet rect { fill: none; stroke: var(--line); stroke-dasharray: 3 3; }
+svg .cell text { font-size: 10.5px; }
+svg .colsel { fill: var(--cmd); opacity: 0.45; }
+svg .stepno { font-family: var(--display); font-size: 11px; font-weight: 600; fill: var(--muted); font-variant-numeric: tabular-nums; }
+.scene { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 14px; }
+@media (max-width: 860px) { .scene { grid-template-columns: 1fr; } }
+.evlist { display: grid; gap: 6px; }
+.ev { border: 1px solid var(--evt-s); background: var(--evt); border-radius: 6px; padding: 6px 10px; font-size: 12.5px; min-width: 0; }
+.ev .seq { font-family: var(--mono); font-size: 11px; color: var(--muted); margin-right: 6px; }
+.ev b { font-weight: 600; }
+.ev code { display: block; margin-top: 2px; font-size: 11.5px; overflow-wrap: anywhere; color: var(--fg); }
+.ev.none { border-color: var(--rule); background: var(--bg); color: var(--muted); }
+.ev.rej { border-color: var(--hot-s); background: var(--hot); }
+.agentview { display: grid; gap: 8px; }
+.av { border-left: 3px solid var(--actor-s); padding: 4px 0 4px 12px; font-size: 13px; display: grid; gap: 4px; min-width: 0; }
+.av h4 { margin: 0; font: 600 13px var(--display); }
+.av pre { margin: 0; font: 11.5px/1.5 var(--mono); background: var(--bg); border: 1px solid var(--rule); border-radius: 4px; padding: 6px 8px; overflow-x: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* catalog */
+.tabs { display: flex; flex-wrap: wrap; gap: 6px; }
+.tabs button { font: 500 13px var(--body); padding: 6px 12px; border-radius: 6px; border: 1px solid var(--rule); background: var(--panel); color: var(--fg); cursor: pointer; }
+.tabs button[aria-selected="true"] { border-color: var(--fg); font-weight: 600; }
+.tablewrap { overflow-x: auto; background: var(--panel); border: 1px solid var(--rule); border-radius: 8px; }
+table { border-collapse: collapse; width: 100%; font-size: 13px; }
+th, td { text-align: left; vertical-align: top; padding: 8px 12px; border-bottom: 1px solid var(--rule); }
+th { font: 600 11px var(--body); letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); background: var(--bg); }
+tr:last-child td { border-bottom: 0; }
+td .tag { display: inline-block; padding: 1px 7px; border-radius: 4px; border: 1px solid var(--s); background: var(--f); font-size: 12px; margin: 1px 3px 1px 0; white-space: nowrap; }
+.codes { display: flex; flex-wrap: wrap; gap: 4px; }
+.codes code { background: var(--bg); border: 1px solid var(--rule); border-radius: 4px; padding: 1px 6px; font-size: 11.5px; }
+.hots { display: grid; gap: 8px; }
+.hotitem { background: var(--hot); border: 1px solid var(--hot-s); border-radius: 6px; padding: 10px 14px; }
+.hotitem b { font-family: var(--display); }
+@media (max-width: 520px) { h1 { font-size: 24px; } .detail dl { grid-template-columns: 1fr; gap: 0 0; } .detail dt { margin-top: 6px; } }
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>b-speak domain model</h1>
+    <p class="sub">The plan from <code>docs/architecture.md</code>, drawn out: where each piece runs, every command, event and policy, how audio streams in and out of the domain, and a worked example of two agents sharing the room with you. The domain and application core are built and tested; the host, CLI and audio are next.</p>
+    <div class="counts" id="counts"></div>
+  </header>
+
+  <section>
+    <h2>Where it runs</h2>
+    <p class="sub">One resident host per machine owns the headset and the models. Every agent talks to it through the <code>bspeak</code> CLI, which is a thin client over the host's local HTTP API. An MCP server later is just another client of the same API.</p>
+    <div class="scroller"><svg id="topo" role="img" aria-label="Agents in harnesses call the bspeak CLI, which talks to one host process that owns audio, models and the domain"></svg></div>
+  </section>
+
+  <section>
+    <h2>Command flow</h2>
+    <div class="legend" id="legend"></div>
+    <p class="hint">Read left to right. Purple dashed lines are policies issuing their command back into a lane. Click any sticky to highlight what it touches and read its details below. Scroll sideways on narrow screens.</p>
+    <div class="scroller"><svg id="flow" role="img" aria-label="Event storming flow from actors through commands, aggregates, events, policies and read models"></svg></div>
+    <div class="detail" id="detail" aria-live="polite"></div>
+  </section>
+
+  <section>
+    <h2>Audio streams</h2>
+    <p class="sub">Capture and playback are a streaming pipeline, a supporting subdomain behind ports. They are not modeled as commands. The pipeline touches the domain at exactly four points: speech onset, a finished transcript, the floor being granted, and the last sample played.</p>
+    <div class="scroller"><svg id="stream" role="img" aria-label="Capture pipeline from headset mic to speech to text feeding the Room aggregate, and render pipeline from Speech through text to speech to the headset"></svg></div>
+    <div class="notes">
+      <div class="note"><b>Headset only in v1</b><span>The mic cannot hear the agent, so there is no echo to cancel and barge-in works with plain voice detection. Room speakers need acoustic echo cancellation later.</span></div>
+      <div class="note"><b>Zero frames, never drop them</b><span>The endpointer closes a turn by counting trailing silence. Anything that suppresses audio upstream must emit silence, or turns stop ending.</span></div>
+      <div class="note"><b>While listening is paused</b><span>Voice detection and transcription keep running so the host can hear "start listening". Every other transcript is discarded on the spot and never reaches the event log.</span></div>
+      <div class="note"><b>First sentence first</b><span>Speech is split into sentences and playback starts when the first one is synthesized. A jitter buffer with a short pre-roll rides the gaps between sentences.</span></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>A room with two agents</h2>
+    <p class="sub">Atlas is running tests, Nova is building a settings page, and you are doing the dishes. Step through to see the events each moment produces and what each agent's background <code>utterance list --wait</code> hands it.</p>
+    <div class="stepper">
+      <button type="button" id="prev">Previous</button>
+      <button type="button" id="next">Next</button>
+      <span class="pos" id="pos"></span>
+    </div>
+    <div class="scroller"><svg id="tl" role="img" aria-label="Timeline of the scenario with rows for you, Atlas, Nova, the floor and listening state"></svg></div>
+    <div class="scene">
+      <div class="detail" id="scene-ev" aria-live="polite"></div>
+      <div class="detail" id="scene-ag"></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Catalog</h2>
+    <div class="tabs" role="tablist" id="tabs"></div>
+    <div id="panes"></div>
+  </section>
+
+  <section>
+    <h2>Open questions</h2>
+    <p class="sub">Places where the design bends or has not decided yet.</p>
+    <div class="hots" id="hots"></div>
+  </section>
+</div>
+
+<script>
+/* ================= data ================= */
+const lanes = [
+  { id: "room", name: "Room", sub: "one per host",
+    state: "Participants (name, voice, last seen), floor holder and floor queue, listening state and mode, focus, when you last stopped speaking.",
+    invariants: ["name-format", "name-reserved", "name-duplicate", "name-similar", "participant-unknown", "mode-invalid", "wake-word-required"],
+    actors: [["You", ["voice", "cli"]], ["Agent", ["cli"]], ["Audio pipeline", ["host"]], ["Host", ["host"]]],
+    cmds: [
+      { n: "POST participant", http: "POST /api/participants {name}", cli: "participant post --name Atlas", by: ["Agent"], ev: ["ParticipantJoined"], rules: ["name-format", "name-reserved", "name-duplicate", "name-similar"],
+        note: "Assigns a voice from the pool. Returns the participant and the current event sequence, so the agent starts waiting from there." },
+      { n: "DELETE participant", http: "DELETE /api/participants/{name}", cli: "participant delete Atlas", by: ["Agent", "Host"], ev: ["ParticipantLeft"], rules: ["participant-unknown"],
+        note: "The host issues it itself when a participant has not called in within the timeout window." },
+      { n: "PUT listening", http: "PUT /api/listening {on}", cli: "listening put off|on", voice: "\"stop listening\" / \"start listening\"", by: ["You", "Agent"], ev: ["ListeningPaused", "ListeningResumed"], rules: [],
+        note: "Idempotent: putting the state it is already in emits nothing. The spoken form arrives through Record utterance." },
+      { n: "PATCH listening", http: "PATCH /api/listening {mode, wakeWord?}", cli: "listening patch --mode wake-word --wake-word \"hey room\"", by: ["You"], ev: ["ListeningModeChanged"], rules: ["mode-invalid", "wake-word-required"],
+        note: "always is the v1 default. wake-word mode is designed but not built yet." },
+      { n: "Begin user turn", internal: true, by: ["Audio pipeline"], ev: ["UserStartedSpeaking"], rules: [],
+        note: "Raised the moment voice detection hears speech onset, before any transcript exists. This is what makes barge-in instant." },
+      { n: "Record utterance", internal: true, by: ["Audio pipeline"], ev: ["UserSpoke", "UtteranceDiscarded", "ListeningPaused", "ListeningResumed"], rules: [],
+        note: "A whole-utterance control phrase becomes ListeningPaused or ListeningResumed instead of UserSpoke. Otherwise the address resolver sets addressedTo and focus. While paused, only the resume phrase is accepted and everything else becomes UtteranceDiscarded with no text." },
+      { n: "Grant floor", internal: true, by: ["Host"], ev: ["FloorGranted"], rules: [],
+        note: "Issued by the Next speaker policy and the clock tick. Does nothing (no rejection) while someone holds the floor, while you are speaking, or inside the gap after you stop or after the last speech ended." },
+    ],
+    events: [
+      ["ParticipantJoined", "name, voice, seq"], ["ParticipantLeft", "name, reason (left | timed-out)"],
+      ["ListeningPaused", "by (voice | cli:<name>)"], ["ListeningResumed", "by (voice | cli:<name>)"], ["ListeningModeChanged", "mode, wakeWord?"],
+      ["UserStartedSpeaking", "at"], ["UserSpoke", "utteranceId, text, addressedTo?, focus?"], ["UtteranceDiscarded", "reason (empty | paused | no-wake-word | control)"], ["FloorGranted", "speechId, participant"],
+    ] },
+  { id: "speech", name: "Speech", sub: "one per thing said",
+    state: "Id, participant, text split into sentences, replyTo?, state (Queued, Playing, Finished, Interrupted, Withdrawn), heardThrough (last sentence fully played).",
+    invariants: ["speech-empty", "speech-markdown", "speech-too-long", "reply-to-unknown", "conversation-moved-on", "speech-not-yours", "participant-unknown", "state-transition"],
+    actors: [["Agent", ["cli"]], ["Host", ["host"]]],
+    cmds: [
+      { n: "POST speech", http: "POST /api/speech {text, replyTo?}", cli: "speech post \"Tests pass.\" --reply-to 42 [--wait]", by: ["Agent"], ev: ["SpeechQueued"], rules: ["speech-empty", "speech-markdown", "speech-too-long", "reply-to-unknown", "conversation-moved-on", "participant-unknown"],
+        note: "--wait blocks until PlaybackFinished or SpeechInterrupted and prints which one, plus the text you actually heard." },
+      { n: "DELETE speech", http: "DELETE /api/speech/{id}", cli: "speech delete <id>", by: ["Agent", "Host"], ev: ["SpeechWithdrawn"], rules: ["speech-not-yours", "state-transition"],
+        note: "Only a queued speech can be withdrawn. The host withdraws everything a leaving participant had queued." },
+      { n: "Start playback", internal: true, by: ["Host"], ev: ["PlaybackStarted"], rules: ["state-transition"],
+        note: "Issued by the Play on grant policy once the first sentence is synthesized." },
+      { n: "Finish playback", internal: true, by: ["Host"], ev: ["PlaybackFinished"], rules: ["state-transition"],
+        note: "Raised when the render side has played the last sample (tapped at playout), not when synthesis finished sending audio." },
+      { n: "Interrupt", internal: true, by: ["Host"], ev: ["SpeechInterrupted"], rules: ["state-transition"],
+        note: "Issued by the Barge-in policy. Flushes the jitter buffer and records the last sentence you fully heard." },
+    ],
+    events: [
+      ["SpeechQueued", "speechId, participant, text, replyTo?"], ["PlaybackStarted", "speechId, voice"], ["PlaybackFinished", "speechId"],
+      ["SpeechInterrupted", "speechId, heardThrough, heardText"], ["SpeechWithdrawn", "speechId, reason (withdrawn | participant-left)"],
+    ] },
+];
+const policies = [
+  { n: "Participant timeout", on: [], clock: true, then: "DELETE participant", row: "ParticipantJoined", note: "On a clock tick: a participant silent past the window is removed." },
+  { n: "Withdraw on leave", on: ["ParticipantLeft"], then: "DELETE speech", note: "Anything the leaving participant had queued is withdrawn." },
+  { n: "Earcon", on: ["ListeningPaused", "ListeningResumed"], then: null, ext: "ext:headset", note: "Plays a short distinct tone so you know the state without looking." },
+  { n: "Barge-in", on: ["UserStartedSpeaking"], then: "Interrupt", note: "Only when a speech is playing. Playback stops within one audio frame." },
+  { n: "Play on grant", on: ["FloorGranted"], then: "Start playback", ext: "ext:tts", note: "Synthesizes sentence by sentence and starts as soon as the first is ready." },
+  { n: "Next speaker", on: ["SpeechQueued", "PlaybackFinished", "SpeechInterrupted", "SpeechWithdrawn"], then: "Grant floor", row: "PlaybackFinished", note: "Grants the oldest queued speech once nobody holds the floor and the gap after your last words has passed." },
+];
+const reads = [
+  { id: "read:feed", n: "Utterance feed", row: "UserSpoke", from: ["UserSpoke"], q: "utterance list --after <n> --wait --as <name>", note: "Every UserSpoke, with addressedTo and focus. Each participant reads from its own position, so everyone hears everything, like a room." },
+  { id: "read:status", n: "Speech status", row: "SpeechInterrupted", from: ["PlaybackFinished", "SpeechInterrupted", "SpeechWithdrawn"], q: "speech get <id>, speech post --wait", note: "What happened to a speech and how much of it you heard." },
+];
+const resources = [
+  ["brief", "get", "GET /api/brief", "Voice rules, room etiquette, who is in the room, listening state. The agent reads this first."],
+  ["participant", "post --name, list, delete", "/api/participants", "Join, see who is in the room, leave."],
+  ["utterance", "list [--after <id>] [--for-you] [--wait] [--timeout]", "GET /api/utterances?after=", "What you said, with addressedTo, focus and forYou. Only the CLI waits; HTTP answers 204 when empty."],
+  ["speech", "post <text> [--reply-to] [--wait], get, list, delete", "/api/speech, /api/speech/{id}", "Say something, check on it, or withdraw it while queued."],
+  ["listening", "get, put on|off, patch --mode", "/api/listening", "The toggle and the mode."],
+  ["event", "list [--after] [--wait]", "GET /api/events, /api/events/stream", "The raw event log. The stream is server-sent events for a future status page."],
+  ["model", "list, pull", "/api/models", "Local model files in the profile folder. The host pulls missing ones on first use."],
+  ["provider", "get, list, put", "/api/providers", "Which implementation backs each port, plus endpoint and model names."],
+  ["device", "list, put", "/api/devices", "Pick the capture and render devices."],
+  ["host", "get, delete", "/api/host", "Status (floor holder, queue, loaded models) and stop. bspeak serve runs it in the foreground."],
+];
+const exitCodes = [["0", "ok"], ["1", "rejected by a rule; the output names the rule"], ["2", "usage error"], ["3", "wait timed out; wait again"], ["4", "not found"], ["5", "host unavailable; it restarted, so rejoin"]];
+const ports = [
+  ["IAudioInput", "PortAudio capture (WASAPI on Windows)", "none", "48 kHz from the headset"],
+  ["IAudioOutput", "PortAudio render (WASAPI on Windows)", "none", "Callback driven, fed from the jitter buffer"],
+  ["IVoiceActivityDetector", "Silero VAD (ONNX)", "none", "16 kHz frames; drives speech onset and the endpointer"],
+  ["ISpeechToText", "Whisper via Whisper.net (whisper.cpp)", "OpenAI-compatible /v1/audio/transcriptions", "One call per finished utterance"],
+  ["ITextToSpeech", "Kokoro via KokoroSharp (CPU, Apache-2.0)", "OpenAI-compatible /v1/audio/speech, for example Orpheus behind LiteLLM", "Per sentence; 24 kHz from both"],
+  ["IModelStore", "Profile folder ~/.bspeak/models", "none", "bspeak model pull; automatic pull on first use"],
+  ["IEventLog", "In memory, increasing sequence", "none", "Persisting transcripts to SQLite is a later option"],
+  ["IConfigStore", "~/.bspeak/config.json", "none", "Providers, voices, devices, control phrases, mode"],
+  ["IClock", "System clock", "none", "Timeouts and the user gap; faked in tests"],
+];
+const rules = [
+  ["name-duplicate", "Room", "POST participant", "Another participant already has this name (after normalization)."],
+  ["name-format", "Room", "POST participant", "Not a speakable name: use 1 to 24 letters."],
+  ["name-reserved", "Room", "POST participant", "Uses everyone, all, hey, or a word from a control phrase."],
+  ["name-similar", "Room", "POST participant", "Sounds too close to someone already in the room."],
+  ["participant-unknown", "Room, Speech", "most agent commands", "The --as name is not in the room. Rejoin."],
+  ["mode-invalid", "Room", "PATCH listening", "Mode must be always or wake-word."],
+  ["wake-word-required", "Room", "PATCH listening", "wake-word mode needs a wake word."],
+  ["speech-empty", "Speech", "POST speech", "Nothing to say."],
+  ["speech-markdown", "Speech", "POST speech", "Code fences, inline code, bullets, headings, tables, bold, links or raw URLs. The message names what it found."],
+  ["speech-too-long", "Speech", "POST speech", "Over the configured length. Say less, offer more."],
+  ["reply-to-unknown", "Speech", "POST speech --reply-to", "There is no utterance with that id."],
+  ["conversation-moved-on", "Speech", "POST speech --reply-to", "A newer utterance addressed to you (or unaddressed while you hold focus) arrived. Read it first."],
+  ["speech-not-yours", "Speech", "DELETE speech", "Only the participant who queued a speech may withdraw it."],
+  ["state-transition", "Speech", "DELETE speech, playback commands", "The speech is not in a state that allows this, for example withdrawing one that already played."],
+];
+const hotspots = [
+  ["Names are matched on a transcript.", "Addressing depends on Whisper hearing \"Atlas\" correctly. Fuzzy matching helps, but two similar names will misroute. The host could hand out names from a pool chosen to sound distinct."],
+  ["Every agent hears every utterance.", "That matches the room metaphor, but each agent spends tokens deciding to stay quiet. utterance list --for-you now filters to what is meant for the agent; the skill has to decide whether to recommend it, since an agent then misses context said to others."],
+  ["Control phrases inside sentences.", "\"Tell the server to stop listening on 8080\" must not pause the room. Plan: only a whole utterance that is just the control phrase counts."],
+  ["Playback commands have no resource.", "Start playback, Finish playback, Interrupt, Grant floor and Begin user turn are issued by the host itself. They live in the domain so their rules are tested, but nothing outside can call them."],
+  ["The event log forgets on restart.", "A host restart clears the room. Agents get exit code 5 and must rejoin, and the skill has to say so."],
+  ["Wake word runs speech to text on everything.", "wake-word mode is built as a transcript match. A dedicated keyword model would avoid transcribing speech that is not for the room."],
+];
+
+/* ================= helpers ================= */
+const NS = "http://www.w3.org/2000/svg";
+function el(tag, attrs = {}, parent) { const e = document.createElementNS(NS, tag); for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v); if (parent) parent.appendChild(e); return e; }
+function txt(parent, x, y, s, cls, anchor) { const t = el("text", { x, y, class: cls || "" }, parent); if (anchor) t.setAttribute("text-anchor", anchor); t.textContent = s; return t; }
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const sty = k => `--f:var(--${k});--s:var(--${k}-s)`;
+const tag = (k, s) => `<span class="tag" style="${sty(k)}">${esc(s)}</span>`;
+function markers(svg, ids) {
+  const defs = el("defs", {}, svg);
+  for (const id of ids) { const m = el("marker", { id, viewBox: "0 0 10 10", refX: 9, refY: 5, markerWidth: 7, markerHeight: 7, orient: "auto-start-reverse" }, defs); el("path", { d: "M0,0 L10,5 L0,10 z" }, m); }
+}
+function size(svg, w, h) { svg.setAttribute("viewBox", `0 0 ${w} ${h}`); svg.setAttribute("width", w); svg.setAttribute("height", h); }
+function chips(g, list, xRight, y) {
+  let cx = xRight;
+  for (const c of list.slice().reverse()) {
+    const cw = c.length * 6 + 10; cx -= cw;
+    el("rect", { class: `chipbg ${c}`, x: cx, y, width: cw, height: 13, rx: 2 }, g);
+    txt(g, cx + cw / 2, y + 9.5, c.toUpperCase(), "chiptx", "middle");
+    cx -= 4;
+  }
+}
+
+/* ================= counts + legend ================= */
+const allCmds = lanes.flatMap(l => l.cmds), allEvts = lanes.flatMap(l => l.events);
+document.getElementById("counts").innerHTML = [
+  ["agg", lanes.length, "aggregates"], ["cmd", allCmds.length, "commands"], ["evt", allEvts.length, "events"], ["pol", policies.length, "policies"],
+  ["read", reads.length, "read models"], ["infra", resources.length, "CLI resources"], ["hot", rules.length, "rule codes"],
+].map(([k, n, l]) => `<span class="count" style="${sty(k)}"><b>${n}</b>${l}</span>`).join("");
+document.getElementById("legend").innerHTML = [
+  ["actor", "Actor"], ["cmd", "Command (CLI or voice)"], ["cmd", "Internal command (host only)", "dash"], ["agg", "Aggregate"], ["evt", "Domain event"], ["pol", "Policy"], ["read", "Read model"], ["ext", "Device or provider"],
+].map(([k, l, d]) => `<span><i class="sw ${d || ""}" style="${sty(k)}"></i>${l}</span>`).join("") +
+  `<span><i class="chip voice">VOICE</i> spoken</span><span><i class="chip cli">CLI</i> bspeak CLI</span><span><i class="chip host">HOST</i> inside the host</span>`;
+
+/* ================= topology ================= */
+{
+  const s = document.getElementById("topo");
+  markers(s, ["ar-plain", "ar-audio", "ar-cmd"]);
+  const box = (x, y, w, h, cls, title, sub, sub2) => { const g = el("g", { class: `blk ${cls}` }, s); el("rect", { class: "box", x, y, width: w, height: h, rx: 6 }, g); txt(g, x + 12, y + 20, title, "lbl"); if (sub) txt(g, x + 12, y + 36, sub, "small"); if (sub2) txt(g, x + 12, y + 50, sub2, "small"); return g; };
+  const arrow = (d, cls, lbl, lx, ly, lcls) => { el("path", { class: `flow ${cls}`, d, "marker-end": `url(#ar-${cls.includes("audio") ? "audio" : cls.includes("cmd") ? "cmd" : "plain"})` }, s); if (lbl) txt(s, lx, ly, lbl, `flowlbl ${lcls || ""}`); };
+  txt(s, 20, 26, "Harnesses", "colhead"); txt(s, 268, 26, "Adapters", "colhead"); txt(s, 486, 26, "bspeak host (one per machine)", "colhead"); txt(s, 1010, 26, "Outside the host", "colhead");
+  const H = [["Claude Code: Atlas", "background shell runs", "utterance list --wait"], ["Claude Code: Nova", "same CLI, its own --as", ""], ["Any harness with a shell", "Codex, OpenCode, scripts", ""]];
+  H.forEach(([t, a, b], i) => { box(20, 44 + i * 78, 200, 62, "k-actor", t, a, b); arrow(`M220,${75 + i * 78} C250,${75 + i * 78} 240,118 268,118`, "cmd"); });
+  box(268, 80, 170, 76, "k-cmd", "bspeak CLI", "thin client, prints JSON", "starts the host if needed");
+  box(268, 232, 170, 62, "k-cmd", "MCP server", "later: same API", "");
+  s.lastChild.querySelector("rect").setAttribute("stroke-dasharray", "6 4");
+  arrow("M438,118 L486,118", "cmd", "HTTP", 446, 110, "cmd");
+  arrow("M438,262 C464,262 462,200 486,190", "cmd later", "", 0, 0);
+  el("rect", { class: "zone", x: 486, y: 40, width: 480, height: 300, rx: 8 }, s);
+  const L = [["k-cmd", "Host adapter: HTTP API on localhost", "port written to ~/.bspeak/host.json"], ["k-pol", "Application: command handlers, policies, queries", "event log (in memory), address resolver"], ["k-agg", "Domain: Room, Speech", "invariants, events; no audio, no I/O"], ["k-infra", "Infrastructure: audio I/O, VAD, STT, TTS, model store", "PortAudio, Silero, Whisper.net, KokoroSharp, HTTP clients"]];
+  L.forEach(([k, t, sub], i) => box(502, 54 + i * 70, 448, 56, k, t, sub));
+  for (let i = 0; i < 3; i++) arrow(`M726,${110 + i * 70} L726,${124 + i * 70}`, "", "", 0, 0);
+  box(1010, 44, 210, 62, "k-ext", "Headset", "USB or Bluetooth mic + earphones", "");
+  box(1010, 124, 210, 76, "k-ext", "Local models", "~/.bspeak/models", "Whisper, Kokoro, Silero (pulled)");
+  box(1010, 218, 210, 62, "k-ext", "Remote endpoint (optional)", "OpenAI-compatible, e.g. LiteLLM", "");
+  box(1010, 296, 210, 44, "k-infra", "~/.bspeak/config.json", "providers, voices, phrases", "");
+  arrow("M950,262 C985,262 975,75 1010,75", "audio", "", 0, 0);
+  arrow("M1010,85 C975,85 985,272 950,272", "audio", "", 0, 0);
+  txt(s, 958, 168, "audio", "flowlbl");
+  arrow("M950,290 C980,290 980,162 1010,162", "", "", 0, 0);
+  arrow("M950,300 C980,300 980,249 1010,249", "later", "", 0, 0);
+  size(s, 1240, 356);
+}
+
+/* ================= flow diagram ================= */
+const X = { actor: 16, cmd: 172, agg: 436, evt: 616, pol: 868, out: 1092 };
+const W = { actor: 134, cmd: 238, agg: 150, evt: 220, pol: 190, out: 180 };
+const RH = 50, NH = 28, TOP = 92, LANEPAD = 26;
+const svg = document.getElementById("flow");
+const nodes = {}, edges = [];
+markers(svg, ["arr", "arr-pol"]);
+const gEdges = el("g", {}), gNodes = el("g", {});
+function node(id, kind, x, y, w, label, sub, chipList) {
+  const g = el("g", { class: `node k-${kind}`, tabindex: 0, "data-id": id, role: "button", "aria-label": label }, gNodes);
+  const h = sub ? NH + 12 : NH;
+  el("rect", { class: "box", x, y, width: w, height: h, rx: kind === "actor" ? 14 : 4 }, g);
+  txt(g, x + 10, y + 18, label, "lbl");
+  if (sub) txt(g, x + 10, y + 32, sub, "small");
+  if (chipList) chips(g, chipList, x + w - 8, y + 8);
+  nodes[id] = { id, kind, x, y, w, h, g };
+  return nodes[id];
+}
+function link(a, b, cls = "") {
+  const A = nodes[a], B = nodes[b];
+  let x1, y1, x2, y2, d;
+  if (cls === "back") {
+    x1 = A.x + A.w / 2; y1 = A.y; x2 = B.x + B.w / 2; y2 = B.y;
+    const top = Math.min(y1, y2) - 18 - (Math.abs(x1 - x2) / 40);
+    d = `M${x1},${y1} C${x1},${top} ${x2},${top} ${x2},${y2}`;
+  } else {
+    const back = B.x < A.x;
+    x1 = back ? A.x : A.x + A.w; y1 = A.y + A.h / 2; x2 = back ? B.x + B.w : B.x; y2 = B.y + B.h / 2;
+    const dx = Math.max(40, Math.abs(x2 - x1) / 2) * (back ? -1 : 1);
+    d = `M${x1},${y1} C${x1 + dx},${y1} ${x2 - dx},${y2} ${x2},${y2}`;
+  }
+  const p = el("path", { class: `edge ${cls}`, d, "marker-end": cls === "back" ? "url(#arr-pol)" : "url(#arr)" }, gEdges);
+  edges.push({ a, b, p });
+}
+for (const [k, l] of [["actor", "Actors"], ["cmd", "Commands"], ["agg", "Aggregates"], ["evt", "Domain events"], ["pol", "Policies and read models"], ["out", "Reaches"]]) txt(svg, X[k], 76, l, "colhead");
+
+let y = TOP;
+for (const lane of lanes) {
+  const rows = Math.max(lane.cmds.length, lane.events.length);
+  const hgt = rows * RH + LANEPAD * 2;
+  el("rect", { class: "lane-bg", x: 6, y, width: X.evt + W.evt + 14, height: hgt, rx: 6 }, svg);
+  txt(svg, 16, y + 20, lane.name, "lane-name");
+  lane.actors.forEach(([n, ch], i) => node(`act:${lane.id}:${n}`, "actor", X.actor, y + LANEPAD + 12 + i * RH, W.actor, n, null, ch));
+  lane.cmds.forEach((c, i) => {
+    const ch = []; if (c.voice) ch.push("voice"); if (!c.internal) ch.push("cli"); else ch.push("host");
+    node(`cmd:${c.n}`, c.internal ? "icmd" : "cmd", X.cmd, y + LANEPAD + 6 + i * RH, W.cmd, c.n, c.internal ? "not exposed" : c.http.replace(/ \{.*$/, "").replace("/api", ""), ch);
+  });
+  lane.events.forEach(([n], i) => node(`evt:${n}`, "evt", X.evt, y + LANEPAD + 6 + i * RH, W.evt, n));
+  const ah = NH + 12;
+  node(`agg:${lane.id}`, "agg", X.agg, y + hgt / 2 - ah / 2, W.agg, lane.name, lane.sub);
+  y += hgt + 14;
+}
+for (const lane of lanes) for (const c of lane.cmds) {
+  for (const who of c.by) link(`act:${lane.id}:${who}`, `cmd:${c.n}`);
+  link(`cmd:${c.n}`, `agg:${lane.id}`);
+}
+for (const lane of lanes) for (const [n] of lane.events) link(`agg:${lane.id}`, `evt:${n}`);
+// policies
+for (const p of policies) {
+  const r = nodes[`evt:${p.row || p.on[0]}`];
+  node(`pol:${p.n}`, "pol", X.pol, r.y, W.pol, p.n, p.clock ? "on a clock tick" : (p.on.length > 1 ? `on ${p.on.length} events` : null));
+}
+for (const r of reads) node(r.id, "read", X.pol, nodes[`evt:${r.row}`].y, W.pol, r.n, "query");
+// out column
+const feedY = nodes["read:feed"].y, statY = nodes["read:status"].y;
+node("agent", "actor", X.out, (feedY + statY) / 2 - 6, W.out, "Agents", "utterance list --wait", ["cli"]);
+node("ext:headset", "ext", X.out, nodes["pol:Earcon"].y, W.out, "Headset", "earcons and speech");
+node("ext:tts", "ext", X.out, nodes["pol:Play on grant"].y + 6, W.out, "Text to speech", "Kokoro or remote");
+for (const p of policies) {
+  for (const e of p.on) link(`evt:${e}`, `pol:${p.n}`);
+  if (p.then) link(`pol:${p.n}`, `cmd:${p.then}`, "back");
+  if (p.ext) link(`pol:${p.n}`, p.ext);
+}
+link("ext:tts", "ext:headset");
+for (const r of reads) { for (const e of r.from) link(`evt:${e}`, r.id, "read"); link(r.id, "agent", "read"); }
+// event log band
+{
+  const by = y + 4, g = el("g", { class: "band" }, svg);
+  el("rect", { x: X.agg, y: by, width: X.out + W.out - X.agg, height: 52, rx: 6 }, g);
+  txt(g, X.agg + 14, by + 21, "Event log: every accepted command appends its events with an increasing sequence number. Each reader keeps its own position.", "lbl");
+  txt(g, X.agg + 14, by + 40, "Read by: bspeak utterance list --after <n> --wait   ·   bspeak event list --after <n> --wait   ·   GET /api/events/stream (later status page)", "small");
+  y = by + 52;
+}
+svg.appendChild(gEdges); svg.appendChild(gNodes);
+size(svg, X.out + W.out + 20, y + 18);
+
+/* selection */
+const cmdIndex = {}, evtIndex = {};
+for (const l of lanes) { for (const c of l.cmds) cmdIndex[c.n] = { ...c, lane: l }; for (const [n, f] of l.events) evtIndex[n] = { n, fields: f, lane: l }; }
+const policiesOn = n => policies.filter(p => p.on.includes(n));
+const readsOn = n => reads.filter(r => r.from.includes(n));
+function related(id) {
+  const s = new Set([id]); const k = id.split(":")[0], n = id.slice(id.indexOf(":") + 1);
+  const addPol = p => { s.add(`pol:${p.n}`); if (p.then) s.add(`cmd:${p.then}`); if (p.ext) s.add(p.ext); };
+  if (k === "cmd") { const c = cmdIndex[n]; s.add(`agg:${c.lane.id}`); c.by.forEach(w => s.add(`act:${c.lane.id}:${w}`)); c.ev.forEach(e => { s.add(`evt:${e}`); policiesOn(e).forEach(addPol); readsOn(e).forEach(r => { s.add(r.id); s.add("agent"); }); });
+    policies.filter(p => p.then === n).forEach(p => s.add(`pol:${p.n}`)); }
+  else if (k === "agg") { const l = lanes.find(l => l.id === n); l.cmds.forEach(c => s.add(`cmd:${c.n}`)); l.events.forEach(e => s.add(`evt:${e[0]}`)); l.actors.forEach(a => s.add(`act:${l.id}:${a[0]}`)); }
+  else if (k === "evt") { const e = evtIndex[n]; s.add(`agg:${e.lane.id}`); e.lane.cmds.filter(c => c.ev.includes(n)).forEach(c => s.add(`cmd:${c.n}`)); policiesOn(n).forEach(addPol); readsOn(n).forEach(r => { s.add(r.id); s.add("agent"); }); }
+  else if (k === "pol") { const p = policies.find(p => p.n === n); p.on.forEach(e => s.add(`evt:${e}`)); addPol(p); }
+  else if (k === "read") { const r = reads.find(r => r.id === id); r.from.forEach(e => s.add(`evt:${e}`)); s.add("agent"); }
+  else if (k === "act") { edges.filter(e => e.a === id).forEach(e => s.add(e.b)); }
+  else if (id === "agent") { reads.forEach(r => s.add(r.id)); }
+  else if (id === "ext:tts") { s.add("pol:Play on grant"); s.add("ext:headset"); }
+  else if (id === "ext:headset") { s.add("pol:Earcon"); s.add("ext:tts"); }
+  return s;
+}
+const detail = document.getElementById("detail");
+const dl = rows => "<dl>" + rows.filter(r => r[1]).map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("") + "</dl>";
+const codes = list => list.length ? `<span class="codes">${list.map(i => `<code>${i}</code>`).join("")}</span>` : "";
+function describe(id) {
+  const k = id.split(":")[0], n = id.slice(id.indexOf(":") + 1);
+  if (k === "cmd") { const c = cmdIndex[n];
+    return `<span class="kind">${c.internal ? "Internal command" : "Command"}</span><h3>${esc(c.n)}</h3>` + dl([
+      ["HTTP", c.http ? `<code>${esc(c.http)}</code>` : "none: issued by the host itself"],
+      ["CLI", c.cli ? `<code>bspeak ${esc(c.cli)}</code>` : ""],
+      ["Voice", c.voice ? esc(c.voice) : ""],
+      ["Issued by", c.by.join(", ") + (policies.filter(p => p.then === n).length ? ` (policy: ${policies.filter(p => p.then === n).map(p => p.n).join(", ")})` : "")],
+      ["Emits", c.ev.map(e => `<code>${e}</code>`).join(", ")],
+      ["Can reject with", codes(c.rules) || "no rule codes of its own"],
+      ["Note", esc(c.note)],
+      ["Aggregate", c.lane.name]]); }
+  if (k === "agg") { const l = lanes.find(l => l.id === n);
+    return `<span class="kind">Aggregate</span><h3>${l.name}</h3>` + dl([["State", esc(l.state)], ["Commands", l.cmds.map(c => `<code>${esc(c.n)}</code>`).join(", ")], ["Invariants", codes(l.invariants)],
+      ["Lives in", "<code>src/BSpeak.Domain</code>; tested with no audio and a fake clock"]]); }
+  if (k === "evt") { const e = evtIndex[n]; const ps = policiesOn(n), rs = readsOn(n);
+    return `<span class="kind">Domain event</span><h3>${e.n}</h3>` + dl([["Fields", `<code>${esc(e.fields)}</code>`], ["Raised by", e.lane.cmds.filter(c => c.ev.includes(n)).map(c => c.n).join(", ")],
+      ["Policies", ps.length ? ps.map(p => p.n + (p.then ? ` → <code>${esc(p.then)}</code>` : "")).join(", ") : "none"],
+      ["Agents see it", rs.length ? rs.map(r => r.n).join(", ") : "only through <code>event list</code>"]]); }
+  if (k === "pol") { const p = policies.find(p => p.n === n);
+    return `<span class="kind">Policy</span><h3>${p.n}</h3>` + dl([["Whenever", p.clock ? "a clock tick finds a silent participant" : p.on.map(e => `<code>${e}</code>`).join(" or ")],
+      ["Then", p.then ? `issue <code>${esc(p.then)}</code>` : "play a tone on the headset"], ["Rule", esc(p.note)], ["Where", "<code>src/BSpeak.Application</code>, deterministic, inside the host"]]); }
+  if (k === "read") { const r = reads.find(r => r.id === id);
+    return `<span class="kind">Read model</span><h3>${r.n}</h3>` + dl([["Built from", r.from.map(e => `<code>${e}</code>`).join(", ")], ["Query", `<code>bspeak ${esc(r.q)}</code>`], ["Note", esc(r.note)]]); }
+  if (k === "act") { const [, , who] = id.split(":");
+    const via = { You: "your voice through the headset, or the CLI yourself", Agent: "the <code>bspeak</code> CLI from its harness, with <code>--as &lt;name&gt;</code>", "Audio pipeline": "the capture side: voice detection and speech to text", Host: "policies and playback callbacks inside the host" }[who];
+    return `<span class="kind">Actor</span><h3>${who}</h3>` + dl([["Issues", edges.filter(e => e.a === id).map(e => `<code>${esc(e.b.slice(4))}</code>`).join(", ")], ["Through", via]]); }
+  if (id === "agent") return `<span class="kind">Actor</span><h3>Agents</h3>` + dl([["Hear you", "<code>bspeak utterance list --after &lt;n&gt; --wait --as &lt;name&gt;</code> in a background shell; it exits when you finish a sentence"],
+    ["Instructions", "<code>bspeak brief get</code> plus the b-speak skill"], ["Then issue", "<code>speech post</code>, <code>speech delete</code>, <code>listening put</code>, <code>participant delete</code>"]]);
+  if (id === "ext:tts") return `<span class="kind">Provider</span><h3>Text to speech</h3>` + dl([["Port", "<code>ITextToSpeech</code>"], ["Local", "Kokoro via KokoroSharp, in process, 24 kHz"], ["Remote", "OpenAI-compatible <code>/v1/audio/speech</code>"]]);
+  if (id === "ext:headset") return `<span class="kind">Device</span><h3>Headset</h3>` + dl([["Ports", "<code>IAudioInput</code>, <code>IAudioOutput</code> (PortAudio)"], ["Why a headset", "The mic cannot hear the agent, so v1 needs no echo cancellation and barge-in still works."]]);
+  return "";
+}
+let selected = null;
+function select(id) {
+  svg.querySelectorAll(".node.sel").forEach(n => n.classList.remove("sel"));
+  if (!id || id === selected) { selected = null; svg.classList.remove("dim"); svg.querySelectorAll(".on").forEach(n => n.classList.remove("on"));
+    detail.innerHTML = `<span class="kind">Selection</span><p class="sub">Nothing selected. Click a command, aggregate, event, policy or read model in the diagram.</p>`; return; }
+  selected = id; const s = related(id);
+  svg.classList.add("dim");
+  for (const n of Object.values(nodes)) n.g.classList.toggle("on", s.has(n.id));
+  for (const e of edges) e.p.classList.toggle("on", s.has(e.a) && s.has(e.b));
+  nodes[id].g.classList.add("sel");
+  detail.innerHTML = describe(id);
+}
+svg.addEventListener("click", ev => { const g = ev.target.closest(".node"); select(g ? g.dataset.id : null); });
+svg.addEventListener("keydown", ev => { if ((ev.key === "Enter" || ev.key === " ") && ev.target.closest(".node")) { ev.preventDefault(); select(ev.target.closest(".node").dataset.id); } });
+select("cmd:POST speech");
+
+/* ================= audio streams ================= */
+{
+  const s = document.getElementById("stream");
+  markers(s, ["ar-audio", "ar-signal", "ar-cmd", "ar-flush", "ar-plain"]);
+  const BW = 150, BH = 58, col = i => 20 + i * 178;
+  const blk = (x, y, w, h, k, t, sub) => { const g = el("g", { class: `blk k-${k}` }, s); el("rect", { class: "box", x, y, width: w, height: h, rx: 5 }, g); txt(g, x + 10, y + 20, t, "lbl"); if (sub) { const parts = sub.split("|"); parts.forEach((p, i) => txt(g, x + 10, y + 36 + i * 13, p.trim(), "small")); } };
+  const ar = (d, cls, lbl, lx, ly, anchor) => { el("path", { class: `flow ${cls}`, d, "marker-end": `url(#ar-${cls.split(" ")[0]})` }, s); if (lbl) txt(s, lx, ly, lbl, `flowlbl ${cls.split(" ")[0]}`, anchor); };
+  // capture row
+  const CY = 44;
+  txt(s, 20, 30, "Capture (in)", "colhead");
+  const cap = [["ext", "Headset mic", "USB or Bluetooth"], ["infra", "Capture", "PortAudio, WASAPI|48 kHz mono"], ["infra", "Resample", "48 to 16 kHz|anti-aliased"], ["infra", "Voice detection", "Silero VAD|32 ms frames"], ["infra", "Endpointer", "turn ends after|~700 ms of silence"], ["infra", "Speech to text", "Whisper local, or|/v1/audio/transcriptions"]];
+  cap.forEach(([k, t, sub], i) => { blk(col(i), CY, BW, BH, k, t, sub); if (i) ar(`M${col(i - 1) + BW},${CY + BH / 2} L${col(i)},${CY + BH / 2}`, "audio"); });
+  blk(col(6), CY, BW, BH, "pol", "Control phrase?", "whole utterance only|paused: drop the rest");
+  ar(`M${col(5) + BW},${CY + BH / 2} L${col(6)},${CY + BH / 2}`, "plain", "text", col(5) + BW + 6, CY + BH / 2 - 6);
+  // domain band
+  const DY = 168;
+  el("rect", { class: "zone", x: 10, y: DY - 16, width: 1240, height: 120, rx: 8 }, s);
+  txt(s, 22, DY + 2, "Domain (inside the host)", "colhead");
+  blk(col(0), DY + 14, 324, 64, "agg", "Speech", "Queued, Playing, Finished, Interrupted|one per thing an agent says");
+  blk(col(3), DY + 14, 502, 64, "agg", "Room", "participants, floor, listening state, focus|address resolver sets addressedTo and focus");
+  blk(col(6), DY + 14, BW, 64, "read", "Event log", "UserSpoke to agents|utterance list --wait");
+  ar(`M${col(3) + 502},${DY + 46} L${col(6)},${DY + 46}`, "plain");
+  ar(`M${col(3)},${DY + 46} L${col(0) + 324},${DY + 46}`, "signal", "FloorGranted", col(2) + 4, DY + 40);
+  // capture -> domain
+  ar(`M${col(3) + BW / 2},${CY + BH} L${col(3) + BW / 2},${DY + 14}`, "signal", "speech onset: Begin user turn", col(3) + BW / 2 + 6, CY + BH + 22);
+  ar(`M${col(6) + BW / 2},${CY + BH} C${col(6) + BW / 2},${CY + BH + 40} ${col(5) + 60},${DY - 20} ${col(5) + 60},${DY + 14}`, "cmd", "Record utterance", col(5) + 66, CY + BH + 40);
+  // render row
+  const RY = 330;
+  txt(s, 20, RY - 14, "Render (out)", "colhead");
+  const ren = [["pol", "Sentence splitter", "on . ! ? or a|length cap"], ["infra", "Text to speech", "Kokoro local, or|/v1/audio/speech, 24 kHz"], ["infra", "Jitter buffer", "~1 s ring|200 ms pre-roll"], ["infra", "Resample", "24 to 48 kHz|keeps a lookahead margin"], ["infra", "Render", "PortAudio, WASAPI|tap at playout"], ["ext", "Headset ears", "what you hear"]];
+  ren.forEach(([k, t, sub], i) => { blk(col(i), RY, BW, BH, k, t, sub); if (i) ar(`M${col(i - 1) + BW},${RY + BH / 2} L${col(i)},${RY + BH / 2}`, i === 1 ? "plain" : "audio", i === 1 ? "text" : "", col(i - 1) + BW + 4, RY + BH / 2 - 6); });
+  ar(`M${col(0) + BW / 2},${DY + 78} L${col(0) + BW / 2},${RY}`, "cmd", "Start playback", col(0) + BW / 2 + 6, DY + 104);
+  ar(`M${col(4) + BW / 2},${RY} C${col(4) + BW / 2},${RY - 40} ${col(1) + 120},${DY + 120} ${col(1) + 120},${DY + 78}`, "cmd", "last sample played: Finish playback", col(1) + 130, DY + 112);
+  ar(`M${col(3) + 60},${DY + 78} C${col(3) + 60},${DY + 110} ${col(2) + BW / 2},${RY - 34} ${col(2) + BW / 2},${RY}`, "flush", "barge-in: Interrupt, flush", col(2) + BW / 2 + 8, RY - 10);
+  // legend
+  const LY = RY + BH + 30;
+  [["audio", "audio frames"], ["signal", "domain event"], ["cmd", "command into the domain"], ["flush", "barge-in flush"], ["plain", "text"]].forEach(([c, l], i) => {
+    const x = 20 + i * 200; el("path", { class: `flow ${c}`, d: `M${x},${LY} L${x + 34},${LY}`, "marker-end": `url(#ar-${c})` }, s); txt(s, x + 42, LY + 4, l, "flowlbl");
+  });
+  size(s, 1260, LY + 16);
+}
+
+/* ================= scenario ================= */
+const steps = [
+  { title: "Atlas joins", cells: { Atlas: ["joins", "sys"] },
+    ev: [[1, "ParticipantJoined", '{ "name": "Atlas", "voice": "am_michael" }']],
+    ag: { Atlas: ["bspeak participant post --name Atlas          # → { \"after\": 0 }\nbspeak utterance list --after 0 --wait --as Atlas   # background", "Joins, then waits in a background shell while it keeps working."] } },
+  { title: "Nova joins", cells: { Nova: ["joins", "sys"] },
+    ev: [[2, "ParticipantJoined", '{ "name": "Nova", "voice": "af_heart" }']],
+    ag: { Nova: ["bspeak participant post --name Nova\nbspeak utterance list --after 0 --wait --as Nova", "Gets a different voice, so you can tell them apart by ear."] } },
+  { title: "You address Atlas", cells: { You: ["\"Atlas, run the tests\"", "user"], Atlas: ["runs tests", "work"], Nova: ["stays quiet", "quiet"] },
+    ev: [[3, "UserStartedSpeaking", '{ }'], [4, "UserSpoke", '{ "utteranceId": 1, "text": "Atlas, run the full test suite and tell me if anything breaks.", "addressedTo": "Atlas", "focus": "Atlas" }']],
+    ag: { Atlas: ["→ utterance 1, forYou: true", "Addressed to it. Starts the tests silently and waits again after 1."], Nova: ["→ utterance 1, forYou: false", "Not addressed and not focus. Says nothing, waits again."] } },
+  { title: "You address Nova", cells: { You: ["\"Nova, keep going\"", "user"], Atlas: ["still testing", "work"], Nova: ["builds page", "work"] },
+    ev: [[5, "UserStartedSpeaking", '{ }'], [6, "UserSpoke", '{ "utteranceId": 2, "text": "And Nova, keep going on the settings page.", "addressedTo": "Nova", "focus": "Nova" }']],
+    ag: { Atlas: ["→ utterance 2, forYou: false", "Not for it. Keeps testing."], Nova: ["→ utterance 2, forYou: true", "Carries on with the settings page."] } },
+  { title: "Nova speaks", cells: { Nova: ["\"Settings page is done…\"", "speak"], Floor: ["Nova", "floor"] },
+    ev: [[7, "SpeechQueued", '{ "speechId": "s1", "participant": "Nova", "replyTo": 2 }'], [8, "FloorGranted", '{ "speechId": "s1", "participant": "Nova" }'], [9, "PlaybackStarted", '{ "speechId": "s1", "voice": "af_heart" }']],
+    ag: { Nova: ["bspeak speech post \"Settings page is done. Want me to wire up the save button next?\" --reply-to 2 --as Nova", "Nobody holds the floor, so it plays right away."] } },
+  { title: "Atlas queues behind Nova", cells: { Atlas: ["queued: \"Tests finished…\"", "queued"], Nova: ["\"…save button next?\"", "speak"], Floor: ["Nova", "floor"] },
+    ev: [[10, "SpeechQueued", '{ "speechId": "s2", "participant": "Atlas", "replyTo": 1 }']],
+    ag: { Atlas: ["bspeak speech post \"Tests finished. Two failures, both in the parser.\" --reply-to 1 --wait --as Atlas", "Accepted: utterance 2 was addressed to Nova, so the conversation with Atlas has not moved on. It waits for the floor."] } },
+  { title: "The floor passes to Atlas", cells: { Atlas: ["\"Tests finished.\"", "speak"], Floor: ["Atlas", "floor"] },
+    ev: [[11, "PlaybackFinished", '{ "speechId": "s1" }'], [12, "FloorGranted", '{ "speechId": "s2", "participant": "Atlas" }'], [13, "PlaybackStarted", '{ "speechId": "s2", "voice": "am_michael" }']],
+    ag: { Nova: ["→ speech s1: finished", "You heard all of it. Waits for your answer."], Atlas: ["", "The host waited out the short gap after Nova, in case you wanted to answer first, then granted Atlas. Focus moves to Atlas."] } },
+  { title: "You barge in", cells: { You: ["\"Wait, which parser?\"", "user"], Atlas: ["interrupted", "cut"], Floor: ["you", "floor"] },
+    ev: [[14, "UserStartedSpeaking", '{ }'], [15, "SpeechInterrupted", '{ "speechId": "s2", "heardThrough": 0, "heardText": "Tests finished." }'], [16, "UserSpoke", '{ "utteranceId": 3, "text": "Wait, which parser?", "addressedTo": null, "focus": "Atlas" }']],
+    ag: { Atlas: ["→ speech s2: interrupted, heard \"Tests finished.\"\n→ utterance 3, forYou: true", "Playback stopped the instant you spoke. Unaddressed, but Atlas holds focus, so it is Atlas's turn to answer."], Nova: ["→ utterance 3, forYou: false", "Unaddressed and not focus. Stays quiet; its question about the save button is still open."] } },
+  { title: "A stale reply is refused", cells: { Atlas: ["\"The date parser…\"", "speak"], Floor: ["Atlas", "floor"] },
+    ev: [["rej", "rejected: conversation-moved-on", 'exit 1: speech post --reply-to 1, but utterance 3 is newer and Atlas holds focus'], [17, "SpeechQueued", '{ "speechId": "s3", "participant": "Atlas", "replyTo": 3 }'], [18, "FloorGranted", '{ "speechId": "s3", "participant": "Atlas" }'], [19, "PlaybackStarted", '{ "speechId": "s3" }'], [20, "PlaybackFinished", '{ "speechId": "s3" }']],
+    ag: { Atlas: ["bspeak speech post \"Two failures, both in the parser.\" --reply-to 1   # exit 1\nbspeak speech post \"The date parser. Both failures are timezone handling.\" --reply-to 3", "It tried to finish its old sentence. The rule made it answer your actual question instead."] } },
+  { title: "You pause listening", cells: { You: ["\"Stop listening.\"", "user"], Listening: ["paused", "paused"] },
+    ev: [[21, "UserStartedSpeaking", '{ }'], [22, "ListeningPaused", '{ "by": "voice" }']],
+    ag: { Atlas: ["(nothing)", "The control phrase never reaches agents. Its wait keeps blocking."], Nova: ["(nothing)", "Same. You hear a short tone confirming the pause."] } },
+  { title: "A phone call, unheard", cells: { You: ["(phone call)", "quiet"], Listening: ["paused", "paused"] },
+    ev: [[23, "UserStartedSpeaking", '{ }'], [24, "UtteranceDiscarded", '{ "reason": "paused" }']],
+    ag: { Atlas: ["(nothing)", "The host still detects speech, to catch \"start listening\" and so barge-in still stops an agent that talks over your call. The transcript is discarded and never stored."], Nova: ["(nothing)", ""] } },
+  { title: "You resume", cells: { You: ["\"Start listening.\"", "user"], Listening: ["on", "sys"] },
+    ev: [[25, "UserStartedSpeaking", '{ }'], [26, "ListeningResumed", '{ "by": "voice" }']],
+    ag: { Atlas: ["(nothing yet)", "A second tone. Your next sentence is delivered as usual, as utterance 4."], Nova: ["(nothing yet)", ""] } },
+];
+const rowsTL = ["You", "Atlas", "Nova", "Floor", "Listening"];
+let cur = 0;
+const tl = document.getElementById("tl");
+function drawTL() {
+  tl.innerHTML = "";
+  const LW = 92, CWd = 112, RHt = 40, T = 30;
+  const W = LW + steps.length * CWd + 12, H = T + rowsTL.length * RHt + 8;
+  el("rect", { class: "colsel", x: LW + cur * CWd + 2, y: 4, width: CWd - 4, height: H - 8, rx: 6 }, tl);
+  rowsTL.forEach((r, i) => { txt(tl, 12, T + i * RHt + 25, r, "lane-name"); el("line", { x1: LW, x2: W - 8, y1: T + i * RHt + RHt, y2: T + i * RHt + RHt, stroke: "var(--rule)" }, tl); });
+  steps.forEach((st, j) => {
+    const x = LW + j * CWd;
+    txt(tl, x + CWd / 2, 20, String(j + 1), "stepno", "middle");
+    // listening carries paused state on intermediate steps automatically through cells
+    for (const [r, [label, k]] of Object.entries(st.cells)) {
+      const i = rowsTL.indexOf(r);
+      const g = el("g", { class: `cell c-${k}`, "data-step": j }, tl);
+      el("rect", { x: x + 5, y: T + i * RHt + 6, width: CWd - 10, height: RHt - 12, rx: 4 }, g);
+      const short = label.length > 17 ? label.slice(0, 16) + "…" : label;
+      const t = txt(g, x + 11, T + i * RHt + 24, short); const tt = el("title", {}, g); tt.textContent = label;
+    }
+    const hit = el("rect", { x, y: 0, width: CWd, height: H, fill: "transparent", class: "cell", "data-step": j }, tl);
+  });
+  size(tl, W, H);
+}
+tl.addEventListener("click", ev => { const c = ev.target.closest("[data-step]"); if (c) go(+c.dataset.step); });
+function go(i) {
+  cur = Math.max(0, Math.min(steps.length - 1, i));
+  drawTL();
+  const st = steps[cur];
+  document.getElementById("pos").textContent = `Step ${cur + 1} of ${steps.length}: ${st.title}`;
+  document.getElementById("prev").disabled = cur === 0; document.getElementById("next").disabled = cur === steps.length - 1;
+  const evs = st.ev.length ? st.ev.map(([seq, n, f]) => seq === "rej"
+      ? `<div class="ev rej"><b>${esc(n)}</b><code>${esc(f)}</code></div>`
+      : `<div class="ev"><span class="seq">#${seq}</span><b>${n}</b><code>${esc(f)}</code></div>`).join("")
+    : `<div class="ev none">No events. Nothing is recorded while listening is paused.</div>`;
+  document.getElementById("scene-ev").innerHTML = `<span class="kind">Event log</span><h3>${esc(st.title)}</h3><div class="evlist">${evs}</div>`;
+  const ag = Object.entries(st.ag).map(([who, [cmd, say]]) => `<div class="av"><h4>${who}</h4>${cmd ? `<pre>${esc(cmd)}</pre>` : ""}${say ? `<span>${esc(say)}</span>` : ""}</div>`).join("");
+  document.getElementById("scene-ag").innerHTML = `<span class="kind">What the agents see and do</span><div class="agentview">${ag || `<span class="sub">No agent is affected.</span>`}</div>`;
+}
+document.getElementById("prev").onclick = () => go(cur - 1);
+document.getElementById("next").onclick = () => go(cur + 1);
+go(0);
+
+/* ================= catalog ================= */
+function table(h, rows) { return `<div class="tablewrap"><table><thead><tr>${h.map(x => `<th>${x}</th>`).join("")}</tr></thead><tbody>${rows.map(r => `<tr>${r.map(c => `<td>${c}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`; }
+const panes = {
+  "Resources": table(["Resource", "CLI (bspeak …)", "HTTP", "What it is for"], resources.map(([r, v, h, w]) => [tag("infra", r), `<code>${esc(r)} ${esc(v)}</code>`, `<code>${esc(h)}</code>`, esc(w)])) +
+    `<p class="sub" style="margin:14px 0 8px">Every command prints JSON. Exit codes:</p>` + table(["Code", "Meaning"], exitCodes.map(([c, m]) => [`<code>${c}</code>`, esc(m)])),
+  "Commands": table(["Command", "Exposed as", "Issued by", "Emits", "Can reject with"], lanes.flatMap(l => l.cmds.map(c => [
+    tag("cmd", c.n) + `<br><span class="sub">${l.name}</span>`,
+    c.internal ? `<span class="sub">internal only</span>` : `<code>${esc(c.http)}</code><br><code>bspeak ${esc(c.cli)}</code>` + (c.voice ? `<br>voice: ${esc(c.voice)}` : ""),
+    esc(c.by.join(", ")), c.ev.map(e => tag("evt", e)).join(""), codes(c.rules) || `<span class="sub">none</span>`]))),
+  "Events": table(["Event", "Aggregate", "Fields", "Raised by", "Reaction"], lanes.flatMap(l => l.events.map(([n, f]) => [
+    tag("evt", n), l.name, `<code>${esc(f)}</code>`, l.cmds.filter(c => c.ev.includes(n)).map(c => esc(c.n)).join(", "),
+    [...policiesOn(n).map(p => tag("pol", p.n)), ...readsOn(n).map(r => tag("read", r.n))].join("") || `<span class="sub">event log only</span>`]))),
+  "Policies": table(["Policy", "Whenever", "Then", "Rule"], policies.map(p => [tag("pol", p.n), p.clock ? "clock tick" : p.on.map(e => tag("evt", e)).join(""), p.then ? tag("cmd", p.then) : "play a tone", esc(p.note)])),
+  "Rule codes": table(["Code", "Aggregate", "Checked on", "Meaning"], rules.map(([c, a, o, m]) => [`<code>${c}</code>`, a, esc(o), esc(m)])),
+  "Ports and providers": table(["Port", "Local (default)", "Remote", "Notes"], ports.map(([p, l, r, n]) => [`<code>${p}</code>`, esc(l), r === "none" ? `<span class="sub">none</span>` : esc(r), esc(n)])),
+};
+const tabs = document.getElementById("tabs"), paneEl = document.getElementById("panes");
+Object.keys(panes).forEach((k, i) => { const b = document.createElement("button"); b.type = "button"; b.textContent = k; b.id = "tab-" + i; b.setAttribute("role", "tab"); b.onclick = () => show(k); tabs.appendChild(b); });
+function show(k) { [...tabs.children].forEach(b => b.setAttribute("aria-selected", b.textContent === k)); paneEl.innerHTML = panes[k]; try { localStorage.setItem("bs-tab", k); } catch {} }
+let startTab = "Resources"; try { const t = localStorage.getItem("bs-tab"); if (t && panes[t]) startTab = t; } catch {}
+show(startTab);
+document.getElementById("hots").innerHTML = hotspots.map(([t, b]) => `<div class="hotitem"><b>${esc(t)}</b> ${esc(b)}</div>`).join("");
+</script>
