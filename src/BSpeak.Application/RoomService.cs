@@ -43,15 +43,16 @@ public sealed class RoomService
     public static readonly IReadOnlyList<string> NamePool = ["Atlas", "Nova", "Juno", "Felix", "Iris", "Orion", "Hazel", "Milo", "Sage", "Quinn"];
 
     /// <param name="name">The name to join as, or null to take the first free name from <see cref="NamePool"/>.</param>
-    public JoinResult Join(string? name) => Run(() =>
+    /// <param name="preferredVoiceFor">The voice a name used before, if remembered.</param>
+    public JoinResult Join(string? name, Func<string, string?>? preferredVoiceFor = null) => Run(() =>
     {
         Participant p;
-        if (!string.IsNullOrWhiteSpace(name)) p = _room.Join(name, _clock.Now);
+        if (!string.IsNullOrWhiteSpace(name)) p = _room.Join(name, _clock.Now, preferredVoiceFor?.Invoke(name.Trim()));
         else
         {
             var free = NamePool.FirstOrDefault(n => _room.Participants.All(x => !Words.SoundsAlike(x.Name, n)))
                 ?? throw new DomainViolation("name-pool-empty", "Every pooled name is taken. Join with --name.");
-            p = _room.Join(free, _clock.Now);
+            p = _room.Join(free, _clock.Now, preferredVoiceFor?.Invoke(free));
         }
         return new JoinResult(p.Name, p.Voice, _room.UtteranceCount, _log.Head);
     });
@@ -147,6 +148,16 @@ public sealed class RoomService
     }
 
     public void Leave(string name) => Run(() => _room.Leave(name));
+
+    /// <summary>Changes a participant's voice. Speech already playing keeps the old one.</summary>
+    /// <param name="available">The voices the speaking engine has, or null when not known yet.</param>
+    public ParticipantView ChangeVoice(string name, string voice, IReadOnlyCollection<string>? available) => Run(() =>
+    {
+        _room.Touch(name, _clock.Now);
+        _room.ChangeVoice(name, voice, available);
+        var p = _room.Find(name)!;
+        return new ParticipantView(p.Name, p.Voice, p.LastSeen, _openWaits.ContainsKey(p.Name));
+    });
 
     /// <param name="by">Who asked: a participant name, or null for the user at the CLI.</param>
     public void SetListening(bool on, string? by) => Run(() =>

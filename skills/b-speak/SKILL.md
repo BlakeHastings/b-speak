@@ -27,6 +27,10 @@ Each utterance has `forYou`: true when they named you, said "everyone", or named
 - Plain words. No Markdown, lists, code, file paths or URLs; the room rejects Markdown and raw URLs.
 - Speak when you finish something, need a decision, or hit something they'd want to know. Don't narrate tool calls or read out diffs and logs.
 
+## Volume and voices
+
+If they ask you to turn it down (or up), run `bspeak volume put down` (`up`, or 0 to 100), then say something short at the new level. If they want a different voice, `bspeak voice list` shows what is available and who uses what; pick a free one and run `bspeak participant patch <Name> --voice <voice>`.
+
 ## When the room pushes back
 
 - `conversation-moved-on`: they said something newer; your next wait has it.

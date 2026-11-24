@@ -20,20 +20,26 @@ if ((Test-Path $exe) -and (Test-Path (Join-Path $bin 'bspeak.release'))) {
 $arch = if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'arm64' } else { 'x64' }
 $platform = "win-$arch"
 $headers = @{ 'User-Agent' = 'b-speak-installer' }
-$release = Invoke-RestMethod "https://api.github.com/repos/$repo/releases/latest" -Headers $headers
-$version = $release.tag_name.TrimStart('v')
+# Find the latest version from GitHub's releases/latest redirect (no API call, no JSON, no rate limit).
+$request = [Net.WebRequest]::Create("https://github.com/$repo/releases/latest")
+$request.AllowAutoRedirect = $false
+$request.UserAgent = 'b-speak-installer'
+$response = $request.GetResponse()
+$tag = ($response.Headers['Location'] -split '/')[-1]
+$response.Close()
+if (-not $tag -or $tag -notlike 'v*') { throw "Could not find the latest b-speak release." }
+$version = $tag.TrimStart('v')
 $name = "bspeak-$version-$platform.zip"
-$asset = $release.assets | Where-Object { $_.name -eq $name }
-$sums = $release.assets | Where-Object { $_.name -eq 'SHA256SUMS' }
-if (-not $asset) { throw "b-speak $version has no build for $platform." }
+$base = "https://github.com/$repo/releases/download/$tag"
 
 $tmp = Join-Path ([IO.Path]::GetTempPath()) ("bspeak-install-" + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $tmp | Out-Null
 try {
     $zip = Join-Path $tmp $name
     Write-Output "Downloading b-speak $version for $platform ..."
-    Invoke-WebRequest $asset.browser_download_url -OutFile $zip -UseBasicParsing -Headers $headers
-    $sumsText = (Invoke-WebRequest $sums.browser_download_url -UseBasicParsing -Headers $headers).Content
+    try { Invoke-WebRequest "$base/$name" -OutFile $zip -UseBasicParsing -Headers $headers }
+    catch { throw "b-speak $version has no build for $platform." }
+    $sumsText = (Invoke-WebRequest "$base/SHA256SUMS" -UseBasicParsing -Headers $headers).Content
     if ($sumsText -is [byte[]]) { $sumsText = [Text.Encoding]::UTF8.GetString($sumsText) }
     $expected = $sumsText -split "`n" | ForEach-Object {
         $parts = $_.Trim() -split '\s+'

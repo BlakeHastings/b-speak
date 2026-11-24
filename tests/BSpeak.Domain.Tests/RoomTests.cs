@@ -35,6 +35,35 @@ public sealed class RoomTests
     }
 
     [Fact]
+    public void Voices_change_to_one_the_engine_has_and_nobody_else_uses()
+    {
+        var room = RoomWith("Atlas", "Nova");
+        string[] available = ["Miles", "Harper", "Maeve"];
+        var novasVoice = room.Find("Nova")!.Voice;
+
+        room.ChangeVoice("atlas", "maeve", available);
+        Assert.Equal("Maeve", room.Find("Atlas")!.Voice);                   // canonical spelling from the catalog
+        Assert.Equal(new VoiceChanged("Atlas", "Maeve"), Assert.Single(room.TakeEvents()));
+
+        Assert.Equal("voice-unknown", Violation(() => room.ChangeVoice("Atlas", "Zelda", available)));
+        room.ChangeVoice("Nova", "Harper", available);
+        Assert.Equal("voice-taken", Violation(() => room.ChangeVoice("Atlas", "harper", available)));
+        room.ChangeVoice("Atlas", "Maeve", available);                       // already hers: no event
+        Assert.Single(room.TakeEvents());
+        Assert.NotEqual(novasVoice, room.Find("Nova")!.Voice);
+    }
+
+    [Fact]
+    public void Joining_takes_a_remembered_voice_unless_someone_has_it()
+    {
+        var room = new Room();
+        room.Join("Atlas", T0, preferredVoice: "Harper");
+        var nova = room.Join("Nova", T0, preferredVoice: "Harper");
+        Assert.Equal("Harper", room.Find("Atlas")!.Voice);
+        Assert.NotEqual("Harper", nova.Voice);
+    }
+
+    [Fact]
     public void Names_must_be_unique_and_easy_to_tell_apart()
     {
         var room = RoomWith("Nova");

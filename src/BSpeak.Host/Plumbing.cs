@@ -86,7 +86,7 @@ public sealed class SimulatedPlayback(ILogger logger) : IPlayback
     public void PlayEarcon(Earcon earcon) => logger.LogInformation("[earcon] {Earcon}", earcon);
 }
 
-/// <summary>Appends log lines to a file (~/.bspeak/host.log), so a background host can be diagnosed.</summary>
+/// <summary>Appends log lines to ~/.bspeak/host.log across restarts, so a background host can be diagnosed after the fact.</summary>
 public sealed class FileLoggerProvider : ILoggerProvider
 {
     private readonly StreamWriter _writer;
@@ -95,7 +95,11 @@ public sealed class FileLoggerProvider : ILoggerProvider
     public FileLoggerProvider(string path)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        _writer = new StreamWriter(new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.ReadWrite)) { AutoFlush = true };
+        // Keep earlier sessions for diagnosis; roll over once the file passes 5 MB.
+        if (File.Exists(path) && new FileInfo(path).Length > 5 * 1024 * 1024) File.Move(path, path + ".1", overwrite: true);
+        _writer = new StreamWriter(new FileStream(path, FileMode.Append, FileAccess.Write, FileShare.ReadWrite)) { AutoFlush = true };
+        _writer.WriteLine();
+        _writer.WriteLine($"===== {DateTime.Now:yyyy-MM-dd HH:mm:ss} host starting =====");
     }
 
     public ILogger CreateLogger(string categoryName) => new FileLogger(this);

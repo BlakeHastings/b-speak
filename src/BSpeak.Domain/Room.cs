@@ -17,7 +17,7 @@ public sealed record RoomSettings(TimeSpan UserGap, TimeSpan IdleTimeout, IReadO
 public sealed class Participant(string name, string voice, DateTimeOffset lastSeen)
 {
     public string Name { get; } = name;
-    public string Voice { get; } = voice;
+    public string Voice { get; internal set; } = voice;
     public DateTimeOffset LastSeen { get; internal set; } = lastSeen;
 }
 
@@ -65,7 +65,8 @@ public sealed class Room(RoomSettings? settings = null) : AggregateRoot, IRoomVi
 
     // ---------- participants
 
-    public Participant Join(string name, DateTimeOffset now)
+    /// <param name="preferredVoice">A voice this name used before; taken when no one else has it.</param>
+    public Participant Join(string name, DateTimeOffset now, string? preferredVoice = null)
     {
         name = ParticipantNames.Require(name, Settings.ControlPhrases);
         foreach (var p in _participants)
@@ -75,7 +76,10 @@ public sealed class Room(RoomSettings? settings = null) : AggregateRoot, IRoomVi
             if (Words.SoundsAlike(p.Name, name))
                 throw new DomainViolation("name-similar", $"{name} sounds too much like {p.Name}. Pick a name that is easy to tell apart by ear.");
         }
-        var participant = new Participant(name, NextVoice(), now);
+        var voice = !string.IsNullOrWhiteSpace(preferredVoice) && _participants.All(p => !p.Voice.Equals(preferredVoice, StringComparison.OrdinalIgnoreCase))
+            ? preferredVoice.Trim()
+            : NextVoice();
+        var participant = new Participant(name, voice, now);
         _participants.Add(participant);
         Raise(new ParticipantJoined(participant.Name, participant.Voice));
         return participant;
@@ -114,6 +118,28 @@ public sealed class Room(RoomSettings? settings = null) : AggregateRoot, IRoomVi
             .Select(p => p.Name).ToList();
         foreach (var name in idle) Leave(name, LeaveReason.TimedOut);
         return idle;
+    }
+
+    /// <summary>
+    /// Gives a participant a different voice. It must be one the speaking engine has (when <paramref name="available"/>
+    /// is known) and no one else in the room may be using it, so agents stay easy to tell apart.
+    /// </summary>
+    public void ChangeVoice(string name, string voice, IReadOnlyCollection<string>? available)
+    {
+        var p = Require(name);
+        voice = (voice ?? "").Trim();
+        if (voice.Length == 0) throw new DomainViolation("voice-unknown", "Say which voice. List them with: bspeak voice list");
+        if (available is not null)
+        {
+            var match = available.FirstOrDefault(v => v.Equals(voice, StringComparison.OrdinalIgnoreCase))
+                ?? throw new DomainViolation("voice-unknown", $"There is no voice '{voice}'. List them with: bspeak voice list");
+            voice = match;
+        }
+        var holder = _participants.FirstOrDefault(x => x != p && x.Voice.Equals(voice, StringComparison.OrdinalIgnoreCase));
+        if (holder is not null) throw new DomainViolation("voice-taken", $"{holder.Name} is using {voice}. Pick another so you are easy to tell apart.");
+        if (p.Voice.Equals(voice, StringComparison.Ordinal)) return;
+        p.Voice = voice;
+        Raise(new VoiceChanged(p.Name, voice));
     }
 
     // ---------- listening

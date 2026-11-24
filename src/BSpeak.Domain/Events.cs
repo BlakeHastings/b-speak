@@ -29,6 +29,7 @@ public enum WithdrawReason
 // Room
 public sealed record ParticipantJoined(string Name, string Voice) : DomainEvent { public override string Stream => "room"; }
 public sealed record ParticipantLeft(string Name, LeaveReason Reason) : DomainEvent { public override string Stream => "room"; }
+public sealed record VoiceChanged(string Name, string Voice) : DomainEvent { public override string Stream => "room"; }
 public sealed record ListeningPaused(string By) : DomainEvent { public override string Stream => "room"; }
 public sealed record ListeningResumed(string By) : DomainEvent { public override string Stream => "room"; }
 public sealed record ListeningModeChanged(ListeningMode Mode, string? WakeWord) : DomainEvent { public override string Stream => "room"; }

@@ -18,6 +18,86 @@ public static class SelfTest
     private const string Sentence = "Atlas, please run the tests and tell me what breaks.";
 
     /// <param name="provider">Test only this text to speech provider instead of the configured list.</param>
+    /// <summary>Runs a check and turns any exception into a JSON result with "ok": false and the reason, instead of a crash.</summary>
+    public static async Task<int> ReportFailuresAsync(Func<Task<int>> check)
+    {
+        try { return await check(); }
+        catch (Exception ex)
+        {
+            Console.WriteLine(Json.Of(new
+            {
+                ok = false,
+                error = ex.Message,
+                hint = "See the warnings above for which engine could not start. On Linux, b-speak needs libgomp1 (speech to text) and libasound2 (audio).",
+            }));
+            return ExitCodes.Rule;
+        }
+    }
+
+    /// <summary>
+    /// Writes a reply's raw synthesized audio and what playback would send to the device, piece by piece,
+    /// and reports where speech starts in each, for diagnosing clipped or noisy starts.
+    /// </summary>
+    public static async Task<int> DumpAsync(string dir, string? provider)
+    {
+        var config = Profile.LoadConfig();
+        if (provider is not null) config.Tts.Providers = [provider];
+        using var factory = LoggerFactory.Create(b => b.AddSimpleConsole(o => o.SingleLine = true));
+        var logger = factory.CreateLogger("bspeak");
+        var store = new ModelStore(Profile.ModelsDir, config.Stt, config.Tts, logger);
+        var tts = await SpeechEngines.StartTtsAsync(config.Tts, store, new HttpClient { Timeout = TimeSpan.FromSeconds(60) }, logger);
+        var voice = config.Tts.RoomVoices[0];
+        Directory.CreateDirectory(dir);
+
+        var sentences = Domain.SpokenText.Sentences("Okay, I looked into it, and the flaky test was racing the session refresh. Want me to commit it?");
+        var pieces = AudioPlayback.FirstAudioChunks(sentences[0]).Concat(sentences.Skip(1)).ToList();
+        var report = new List<object>();
+        for (var p = 0; p < pieces.Count; p++)
+        {
+            var raw = new List<float>();
+            var rendered = new List<float>();
+            var resampler = new PushResampler(24_000, config.Audio.DeviceSampleRate);
+            var fade = new OnsetFade(24_000);
+            var buffer = new float[16_384];
+            await foreach (var chunk in tts.StreamAsync(pieces[p], voice))
+            {
+                raw.AddRange(chunk);
+                var copy = (float[])chunk.Clone();
+                fade.Apply(copy);
+                resampler.Write(copy);
+                int n;
+                while ((n = resampler.Read(buffer)) > 0) rendered.AddRange(buffer[..n]);
+            }
+            int m;
+            while ((m = resampler.Drain(buffer)) > 0) rendered.AddRange(buffer[..m]);
+            await File.WriteAllBytesAsync(Path.Combine(dir, $"piece{p}-raw.wav"), WavAudio.EncodePcm16(raw.ToArray(), 24_000));
+            await File.WriteAllBytesAsync(Path.Combine(dir, $"piece{p}-rendered.wav"), WavAudio.EncodePcm16(rendered.ToArray(), config.Audio.DeviceSampleRate));
+            report.Add(new
+            {
+                text = pieces[p],
+                rawSpeechStartsMs = SpeechStartMs(raw, 24_000),
+                renderedSpeechStartsMs = SpeechStartMs(rendered, config.Audio.DeviceSampleRate),
+                rawSeconds = Math.Round(raw.Count / 24_000.0, 2),
+                renderedSeconds = Math.Round(rendered.Count / (double)config.Audio.DeviceSampleRate, 2),
+            });
+        }
+        Console.WriteLine(Json.Of(new { provider = tts.Active, dir, pieces = report }));
+        return ExitCodes.Ok;
+    }
+
+    /// <summary>First 10 ms window whose RMS reaches -30 dBFS: roughly where audible speech begins.</summary>
+    private static int SpeechStartMs(List<float> samples, int rate)
+    {
+        var window = rate / 100;
+        for (var i = 0; i + window <= samples.Count; i += window)
+        {
+            double sum = 0;
+            for (var j = i; j < i + window; j++) sum += samples[j] * samples[j];
+            if (Math.Sqrt(sum / window) > 0.0316) return i * 1000 / rate;
+        }
+        return -1;
+    }
+
     public static async Task<int> RunAsync(bool play, string? provider = null)
     {
         var config = Profile.LoadConfig();

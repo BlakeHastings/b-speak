@@ -27,10 +27,12 @@ case "$(uname -m)" in
   *) echo "Unsupported CPU: $(uname -m)" >&2; exit 1 ;;
 esac
 platform="$os-$arch"
+command -v curl > /dev/null 2>&1 || { echo "b-speak's installer needs curl." >&2; exit 1; }
 
-tag=$(curl -fsSL -H 'User-Agent: b-speak-installer' "https://api.github.com/repos/$repo/releases/latest" \
-  | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' | head -n 1)
-[ -n "$tag" ] || { echo "Could not find the latest b-speak release." >&2; exit 1; }
+# Find the latest version from GitHub's releases/latest redirect (no API call, no JSON, no rate limit).
+latest=$(curl -fsSLI -o /dev/null -w '%{url_effective}' "https://github.com/$repo/releases/latest")
+tag="${latest##*/}"
+case "$tag" in v*) ;; *) echo "Could not find the latest b-speak release." >&2; exit 1 ;; esac
 version="${tag#v}"
 name="bspeak-$version-$platform.tar.gz"
 base="https://github.com/$repo/releases/download/$tag"
@@ -54,5 +56,33 @@ if [ "$os" = osx ]; then xattr -dr com.apple.quarantine "$bin" 2> /dev/null || t
 mkdir -p "$HOME/.local/bin"
 ln -sf "$bin/bspeak" "$HOME/.local/bin/bspeak"
 echo "b-speak $version installed to $bin (linked from ~/.local/bin/bspeak)."
-case ":$PATH:" in *":$HOME/.local/bin:"*) ;; *) echo "Add ~/.local/bin to your PATH, or run $bin/bspeak directly." ;; esac
+
+# Make sure ~/.local/bin is on PATH in future shells.
+case ":$PATH:" in
+  *":$HOME/.local/bin:"*) ;;
+  *)
+    line='export PATH="$HOME/.local/bin:$PATH"'
+    for rc in "$HOME/.profile" "$HOME/.bashrc" "$HOME/.zshrc"; do
+      if [ -f "$rc" ] || [ "$rc" = "$HOME/.profile" ]; then
+        grep -qs '.local/bin' "$rc" || printf '\n# Added by the b-speak installer\n%s\n' "$line" >> "$rc"
+      fi
+    done
+    echo "Added ~/.local/bin to your PATH in your shell profile; new shells pick it up. For this shell: $line"
+    ;;
+esac
+
+# Native libraries speech to text and audio need, which minimal systems may lack.
+if [ "$os" = linux ]; then
+  ldcache=$( (ldconfig -p || /sbin/ldconfig -p) 2> /dev/null || true)
+  missing=""
+  printf '%s' "$ldcache" | grep -q 'libgomp.so.1' || missing="$missing libgomp (speech to text)"
+  printf '%s' "$ldcache" | grep -q 'libasound.so.2' || missing="$missing, ALSA libasound (audio)"
+  if [ -n "$missing" ]; then
+    echo "Missing system libraries:$missing."
+    echo "  Debian/Ubuntu: sudo apt-get install -y libgomp1 libasound2   (Ubuntu 24.04: libasound2t64)"
+    echo "  Fedora:        sudo dnf install -y libgomp alsa-lib"
+    echo "  Arch:          sudo pacman -S gcc-libs alsa-lib"
+  fi
+fi
+
 echo "Next: bspeak setup   (downloads the voice models once and checks they work)"

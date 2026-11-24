@@ -105,3 +105,43 @@ public static class Profile
         if (ReadHostInfo()?.Pid == pid) File.Delete(HostInfoPath);
     }
 }
+
+/// <summary>
+/// Choices made while talking that should survive a restart (~/.bspeak/preferences.json): the playback volume,
+/// and the voice each agent name last chose.
+/// </summary>
+public sealed class Preferences
+{
+    private static readonly object Gate = new();
+
+    /// <summary>Playback volume, 0 to 100.</summary>
+    public int Volume { get; set; } = 100;
+
+    public Dictionary<string, string> Voices { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
+    private static string FilePath => Path.Combine(Profile.Home, "preferences.json");
+
+    public static Preferences Load()
+    {
+        lock (Gate)
+        {
+            try
+            {
+                var loaded = File.Exists(FilePath) ? JsonSerializer.Deserialize<Preferences>(File.ReadAllText(FilePath), Profile.Json) : null;
+                if (loaded is null) return new Preferences();
+                loaded.Voices = new Dictionary<string, string>(loaded.Voices, StringComparer.OrdinalIgnoreCase);
+                return loaded;
+            }
+            catch { return new Preferences(); }
+        }
+    }
+
+    public void Save()
+    {
+        lock (Gate)
+        {
+            Directory.CreateDirectory(Profile.Home);
+            File.WriteAllText(FilePath, JsonSerializer.Serialize(this, Profile.Json));
+        }
+    }
+}

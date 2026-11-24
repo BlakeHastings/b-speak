@@ -10,7 +10,8 @@ namespace BSpeak.Application;
 public static class Brief
 {
     /// <param name="notice">Something the agent must raise first, such as an available update.</param>
-    public static string Render(RoomStatus room, string? you, string? notice = null)
+    /// <param name="volume">Playback volume, 0 to 100, when known.</param>
+    public static string Render(RoomStatus room, string? you, string? notice = null, int? volume = null)
     {
         var me = you is null ? null : room.Participants.FirstOrDefault(p => Words.Normalize(p.Name) == Words.Normalize(you));
         var sb = new StringBuilder();
@@ -30,6 +31,7 @@ public static class Brief
         sb.AppendLine($"- Listening: {(room.Listening ? "on" : "paused. The user said \"stop listening\"; nothing they say reaches you until they say \"start listening\"")}");
         sb.AppendLine($"- Mode: {(room.Mode == ListeningMode.WakeWord ? $"wake word \"{room.WakeWord}\"" : "always")}");
         sb.AppendLine($"- Focus: {room.Focus ?? "nobody"}");
+        if (volume is { } v) sb.AppendLine($"- Volume: {v}%");
         sb.AppendLine($"- Utterances so far: {room.Utterances}");
         sb.AppendLine();
         sb.AppendLine("""
@@ -57,6 +59,11 @@ public static class Brief
             - Lead with the point, then offer detail instead of reciting it: "Tests pass. Two files changed. Want me to open the PR?"
             - Speak when you finish something, need a decision, or are blocked. Do routine work silently; never narrate tool calls or read out diffs.
             - Say numbers and names the way you would out loud: "about two hundred lines", "the login page".
+
+            ## Volume and voices
+
+            - "Turn it down" or "louder": `bspeak volume put down` (or `up`, or a number from 0 to 100). Then say something short so they hear the new level.
+            - "Use a different voice" or "sound like someone British": `bspeak voice list` shows the voices and who uses which; pick one nobody else has and run `bspeak participant patch <Name> --voice <voice>`. Your next speech uses it, and it is remembered for your name.
 
             ## When the room says no
 

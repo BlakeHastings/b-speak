@@ -21,6 +21,8 @@ public sealed record ListeningRequest(bool On, string? As);
 public sealed record HandoffRequest(string As, string Text, int? UtteranceId);
 public sealed record HandoffPatch(HandoffStatus Status, string? Note, string? By);
 public sealed record ModeRequest(ListeningMode Mode, string? WakeWord);
+public sealed record ParticipantPatch(string? Voice);
+public sealed record VolumeRequest(int? Volume, string? Step);
 public sealed record ErrorBody(string Code, string Message);
 public sealed record EventView(long Seq, DateTimeOffset At, string Type, string Stream, JsonElement Data);
 public sealed record HostStatus(string Version, int Pid, DateTimeOffset StartedAt, string Profile, UpdateStatus? Update, AudioStatus Audio, RoomStatus Room);
@@ -135,12 +137,44 @@ public static class HostApp
             if (config.Updates.Check && _updateCheck.IsCompleted && (_update?.CheckedAt is not { } at || DateTimeOffset.UtcNow - at > TimeSpan.FromDays(1)))
                 StartUpdateCheck(config, app.Logger, CancellationToken.None); // long-running hosts recheck daily
             await Task.WhenAny(_updateCheck, Task.Delay(3000)); // the first brief after a start waits briefly for the check
-            return Results.Text(Brief.Render(room.Status(), @as, _update is { } u ? Updates.Notice(u) : null), "text/markdown; charset=utf-8");
+            return Results.Text(Brief.Render(room.Status(), @as, _update is { } u ? Updates.Notice(u) : null, Preferences.Load().Volume), "text/markdown; charset=utf-8");
         });
 
-        api.MapPost("/participants", (JoinRequest? body) => room.Join(body?.Name));
+        api.MapPost("/participants", (JoinRequest? body) => room.Join(body?.Name, name => Preferences.Load().Voices.GetValueOrDefault(name)));
         api.MapGet("/participants", () => room.Status().Participants);
         api.MapDelete("/participants/{name}", (string name) => { room.Leave(name); return Results.Ok(new { left = name }); });
+        api.MapPatch("/participants/{name}", (string name, ParticipantPatch body) =>
+        {
+            if (body.Voice is null) throw new BadHttpRequestException("Nothing to change: pass voice.");
+            var changed = room.ChangeVoice(name, body.Voice, audio.Voices);
+            var prefs = Preferences.Load();
+            prefs.Voices[changed.Name] = changed.Voice;
+            prefs.Save();
+            return changed;
+        });
+
+        api.MapGet("/voices", () =>
+        {
+            var used = room.Status().Participants.ToDictionary(p => p.Voice, p => p.Name, StringComparer.OrdinalIgnoreCase);
+            var voices = audio.Voices ?? config.Tts.RoomVoices;
+            return new { provider = audio.TtsProvider, voices = voices.Select(v => new { name = v, usedBy = used.GetValueOrDefault(v) }) };
+        });
+
+        api.MapGet("/volume", () => new { volume = Preferences.Load().Volume });
+        api.MapPut("/volume", (VolumeRequest body) =>
+        {
+            var prefs = Preferences.Load();
+            prefs.Volume = Math.Clamp(body.Step?.ToLowerInvariant() switch
+            {
+                "up" => prefs.Volume + 15,
+                "down" => prefs.Volume - 15,
+                null => body.Volume ?? throw new BadHttpRequestException("Pass volume (0 to 100) or step (up or down)."),
+                _ => throw new BadHttpRequestException("step must be up or down."),
+            }, 0, 100);
+            prefs.Save();
+            if (audio.Render is { } render) render.Volume = prefs.Volume / 100f;
+            return new { volume = prefs.Volume };
+        });
 
         api.MapGet("/utterances", async (string @as, int? after, bool? forYou, double? wait, HttpContext ctx) =>
         {

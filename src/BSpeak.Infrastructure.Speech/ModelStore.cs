@@ -38,7 +38,7 @@ public sealed class ModelStore(string modelsDir, SttOptions stt, TtsOptions tts,
     {
         var files = new List<ModelFile> { Describe("voice activity (Silero)", SileroPath, SileroUrl) };
         if (UsesWhisper) files.Add(Describe($"speech to text (Whisper {stt.Model})", WhisperPath, $"huggingface ggerganov/whisper.cpp ({stt.Model})"));
-        if (Uses("phonon"))
+        if (Uses("phonon") && PhononTextToSpeech.CheckSupported(tts.Phonon) is null)
         {
             files.Add(Describe($"text to speech runner (Gradium ptts {PttsVersion})", FindPtts() ?? Path.Combine(PttsDir, "ptts.exe"), PttsWindowsZip));
             files.Add(Describe("text to speech (Phonon 31M English)", Path.Combine(PhononModelDir, "model.q8.gguf"), "huggingface gradium/phonon-31m-en"));
@@ -95,7 +95,7 @@ public sealed class ModelStore(string modelsDir, SttOptions stt, TtsOptions tts,
     public async Task EnsureAsync(CancellationToken ct = default)
     {
         await EnsureCoreAsync(ct);
-        if (Uses("phonon"))
+        if (Uses("phonon") && PhononTextToSpeech.CheckSupported(tts.Phonon) is null)
         {
             if (PhononTextToSpeech.CheckSupported(tts.Phonon) is { } why) logger.LogWarning("[models] skipping Phonon: {Why}", why);
             else await EnsurePhononAsync(ct);

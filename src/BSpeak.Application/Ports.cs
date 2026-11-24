@@ -53,6 +53,12 @@ public interface IStreamingTextToSpeech : ITextToSpeech
     IAsyncEnumerable<float[]> StreamAsync(string text, string voice, CancellationToken ct = default);
 }
 
+/// <summary>A text to speech engine that can say which voices it has.</summary>
+public interface IVoiceCatalog
+{
+    Task<IReadOnlyList<string>> ListVoicesAsync(CancellationToken ct = default);
+}
+
 /// <summary>Voice activity detection over 512-sample windows of 16 kHz audio (32 ms each).</summary>
 public interface IVoiceActivityDetector
 {

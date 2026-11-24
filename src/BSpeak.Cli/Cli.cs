@@ -87,6 +87,9 @@ public static class Cli
           participant post [--name <name>]                 Join the room; prints your name, voice and "after"
           participant list
           participant delete <name>                        Leave the room
+          participant patch <name> --voice <voice>         Change an agent's voice (see voice list)
+          voice list                                       Voices the speaking engine has, and who uses which
+          volume get | volume put <0-100|up|down>          Playback volume
           utterance list --as <name> [--after <id>] [--for-you] [--wait] [--timeout <seconds>]
                                                            What the user said after utterance <id>; --wait blocks until they speak
           utterance post "<text>"                          Type as if you had said it (testing, or no mic)
@@ -148,7 +151,7 @@ public static class Cli
             case "setup":
                 return await SetupAsync();
             case "selftest":
-                return await SelfTest.RunAsync(args.Has("play"), args.Get("provider"));
+                return await SelfTest.ReportFailuresAsync(() => args.Get("dump") is { } dumpDir ? SelfTest.DumpAsync(dumpDir, args.Get("provider")) : SelfTest.RunAsync(args.Has("play"), args.Get("provider")));
             case "device" when verb == "list":
                 Console.WriteLine(Json.Of(PortAudioSystem.List()));
                 return ExitCodes.Ok;
@@ -164,6 +167,10 @@ public static class Cli
         {
             ("brief", "get") => await client.TextAsync($"/api/brief{Query(("as", args.Get("as") ?? Environment.GetEnvironmentVariable("BSPEAK_AS")))}"),
             ("participant", "post") => await client.SendAsync(HttpMethod.Post, "/api/participants", new { name = args.Get("name") ?? (args.Positional.Count > 2 ? args.Positional[2] : null) }),
+            ("participant", "patch") => await client.SendAsync(HttpMethod.Patch, $"/api/participants/{Uri.EscapeDataString(args.Require(2, "participant name"))}", new { voice = args.Get("voice") ?? throw new UsageException("Pass --voice <voice>. List them with: bspeak voice list") }),
+            ("voice", "list") => await client.SendAsync(HttpMethod.Get, "/api/voices"),
+            ("volume", "get") => await client.SendAsync(HttpMethod.Get, "/api/volume"),
+            ("volume", "put") => await client.SendAsync(HttpMethod.Put, "/api/volume", VolumeBody(args.Require(2, "a volume from 0 to 100, or up or down"))),
             ("participant", "list") => await client.SendAsync(HttpMethod.Get, "/api/participants"),
             ("participant", "delete") => await client.SendAsync(HttpMethod.Delete, $"/api/participants/{Uri.EscapeDataString(args.Require(2, "participant name"))}"),
             ("utterance", "list") => await UtterancesAsync(client, args),
@@ -186,6 +193,12 @@ public static class Cli
             _ => throw new UsageException($"Unknown command '{resource} {verb}'."),
         };
     }
+
+    private static object VolumeBody(string value) => value.ToLowerInvariant() switch
+    {
+        "up" or "down" => new { step = value.ToLowerInvariant() },
+        _ => int.TryParse(value.TrimEnd('%'), out var n) && n is >= 0 and <= 100 ? new { volume = (int?)n } : throw new UsageException("Volume is a number from 0 to 100, or up or down."),
+    };
 
     private static bool OnOff(string value) => value.ToLowerInvariant() switch
     {
@@ -363,7 +376,7 @@ public static class Cli
     {
         var model = await ModelAsync("pull");
         if (model != ExitCodes.Ok) return model;
-        return await SelfTest.RunAsync(play: false);
+        return await SelfTest.ReportFailuresAsync(() => SelfTest.RunAsync(play: false));
     }
 
     private static async Task StopHostQuietlyAsync()

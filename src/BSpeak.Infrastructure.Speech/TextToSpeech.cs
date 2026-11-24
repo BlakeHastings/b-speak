@@ -16,7 +16,7 @@ namespace BSpeak.Infrastructure.Speech;
 /// Tries the GPU through DirectML and falls back to the CPU if the first inference fails there.
 /// Calls are serialized: the ONNX session is not assumed reentrant.
 /// </summary>
-public sealed class KokoroTextToSpeech : ITextToSpeech, IDisposable
+public sealed class KokoroTextToSpeech : ITextToSpeech, IVoiceCatalog, IDisposable
 {
     private readonly string _modelPath;
     private readonly float _speed;
@@ -95,6 +95,17 @@ public sealed class KokoroTextToSpeech : ITextToSpeech, IDisposable
         }
     }
 
+    /// <summary>The English voices shipped with KokoroSharp (names starting a for American, b for British; then f or m).</summary>
+    public Task<IReadOnlyList<string>> ListVoicesAsync(CancellationToken ct = default)
+    {
+        var dir = Path.Combine(AppContext.BaseDirectory, "voices");
+        IReadOnlyList<string> voices = Directory.Exists(dir)
+            ? Directory.EnumerateFiles(dir, "*.npy").Select(Path.GetFileNameWithoutExtension).OfType<string>()
+                .Where(n => n.StartsWith('a') || n.StartsWith('b')).Order().ToList()
+            : [];
+        return Task.FromResult(voices);
+    }
+
     /// <summary>A bundled voice name, or a weighted blend like "bf_emma(0.4)+af_heart(0.6)". GetVoice alone does not parse blends.</summary>
     public static KokoroVoice ResolveVoice(string voice)
     {
@@ -124,7 +135,7 @@ public sealed class KokoroTextToSpeech : ITextToSpeech, IDisposable
 /// LiteLLM gateway. With <see cref="OpenAiTtsOptions.Streaming"/> it asks for raw 16-bit PCM at
 /// <see cref="OpenAiTtsOptions.SampleRate"/> and hands over audio as the server generates it.
 /// </summary>
-public sealed class OpenAiTextToSpeech(OpenAiTtsOptions options, HttpClient http) : IStreamingTextToSpeech
+public sealed class OpenAiTextToSpeech(OpenAiTtsOptions options, HttpClient http) : IStreamingTextToSpeech, IVoiceCatalog
 {
     private int _sampleRate = options.SampleRate;
 
@@ -161,6 +172,17 @@ public sealed class OpenAiTextToSpeech(OpenAiTtsOptions options, HttpClient http
             response.EnsureSuccessStatusCode();
             return response;
         }
+    }
+
+    /// <summary>The server's voices from GET /audio/voices (ptts-openai-server has it), or the configured list.</summary>
+    public async Task<IReadOnlyList<string>> ListVoicesAsync(CancellationToken ct = default)
+    {
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(await http.GetStringAsync(options.Endpoint!.TrimEnd('/') + "/audio/voices", ct));
+            return doc.RootElement.GetProperty("voices").EnumerateArray().Select(v => v.GetString()!).Where(v => v is not (null or "default")).ToList();
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException) { return options.Voices.Count > 0 ? options.Voices : OpenAiTtsOptions.DefaultVoices; }
     }
 
     public async Task<float[]> SynthesizeAsync(string text, string voice, CancellationToken ct = default)

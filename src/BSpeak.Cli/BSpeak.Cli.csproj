@@ -8,6 +8,8 @@
     <OutputType>Exe</OutputType>
     <AssemblyName>bspeak</AssemblyName>
     <RootNamespace>BSpeak.Cli</RootNamespace>
+    <!-- No ICU dependency: minimal Linux systems lack libicu, and b-speak needs no culture data. -->
+    <InvariantGlobalization>true</InvariantGlobalization>
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>

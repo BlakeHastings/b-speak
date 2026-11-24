@@ -75,7 +75,7 @@ public sealed class KokoroOptions
     /// <summary>Model precision: "fp32" (best), "quant", or "int8" (smallest).</summary>
     public string Variant { get; set; } = "fp32";
 
-    /// <summary>"cpu" (default), or "auto"/"directml" to try the GPU (Kokoro v1.0 currently fails there and falls back).</summary>
+    /// <summary>"cpu". ("auto"/"directml" only work with a DirectML build of ONNX Runtime; Kokoro v1.0 fails there anyway.)</summary>
     public string Device { get; set; } = "cpu";
 
     /// <summary>Speaking rate. 1.0 is natural; 1.1 to 1.2 suits listening while busy.</summary>

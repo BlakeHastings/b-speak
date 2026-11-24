@@ -18,6 +18,8 @@ public sealed class RenderDevice : IDisposable
     private readonly Queue<(long Position, Action Action)> _markers = new();
     private readonly Channel<Action> _due = Channel.CreateUnbounded<Action>(new UnboundedChannelOptions { SingleReader = true });
     private readonly int _preroll;
+    private readonly float _keepAlive;
+    private uint _noise = 2463534242;
     private long _written;
     private long _played;
     private bool _primed;
@@ -32,7 +34,17 @@ public sealed class RenderDevice : IDisposable
     {
         _options = options;
         _preroll = Math.Max(1, options.DeviceSampleRate * options.RenderPrerollMs / 1000);
+        _keepAlive = options.KeepAliveDb is { } db && db < 0 ? (float)Math.Pow(10, db / 20.0) : 0f;
     }
+
+    /// <summary>Playback level for speech and tones, 0 to 1. The keep-alive floor is not scaled.</summary>
+    public float Volume
+    {
+        get => _volume;
+        set => _volume = Math.Clamp(value, 0f, 1f);
+    }
+
+    private volatile float _volume = 1f;
 
     public int SampleRate => _options.DeviceSampleRate;
     public string DeviceName { get; private set; } = "";
@@ -119,8 +131,11 @@ public sealed class RenderDevice : IDisposable
         {
             if (!_primed && _ring.Count > 0 && (_ring.Count >= _preroll || _endOfData)) _primed = true;
             var take = _primed ? Math.Min(n, _ring.Count) : 0;
-            for (var i = 0; i < take; i++) _scratch[i] = _ring.Dequeue();
-            Array.Clear(_scratch, take, n - take);
+            var gain = Volume;
+            for (var i = 0; i < take; i++) _scratch[i] = _ring.Dequeue() * gain;
+            // Fill the rest with a faint noise floor rather than digital silence, so devices that power down
+            // on silence (many wireless headsets) stay awake and do not swallow the start of the next speech.
+            for (var i = take; i < n; i++) _scratch[i] = NextNoise() * _keepAlive;
             _played += take;
             audible = take > 0;
             if (_primed && _ring.Count == 0) _primed = false;
@@ -129,6 +144,15 @@ public sealed class RenderDevice : IDisposable
         if (audible) Interlocked.Exchange(ref _lastAudibleTicks, DateTime.UtcNow.Ticks);
         Marshal.Copy(_scratch, 0, output, n);
         return StreamCallbackResult.Continue;
+    }
+
+    /// <summary>White noise in [-1, 1] from a xorshift generator: cheap and allocation-free for the audio thread.</summary>
+    private float NextNoise()
+    {
+        _noise ^= _noise << 13;
+        _noise ^= _noise >> 17;
+        _noise ^= _noise << 5;
+        return _noise / (float)uint.MaxValue * 2f - 1f;
     }
 
     public void Dispose()

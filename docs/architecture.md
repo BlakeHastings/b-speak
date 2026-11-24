@@ -220,6 +220,12 @@ An optional queue for passing work between agents. `Post` needs a participant in
 
 `skills/b-speak/SKILL.md` covers joining, listening, speaking, the usual two-agent setup, and recovering when the room pushes back. The harness-neutral version lives in `bspeak brief get`.
 
+## Volume and voices
+
+- **Volume** is b-speak's own playback level (not the system volume), 0 to 100, applied in the render device to speech and tones. `bspeak volume put <n|up|down>` changes it (steps of 15) and it is saved in `~/.bspeak/preferences.json`.
+- **Voices**: `Room.ChangeVoice` gives a participant a different voice, raising `VoiceChanged`. It must be one the speaking engine has (`voice-unknown`; each engine reports its catalog, Phonon's from Gradium's list, Kokoro's English voices) and nobody else may be using it (`voice-taken`). `bspeak participant patch <name> --voice <voice>` exposes it; the choice is remembered per name and offered again on the next join.
+- **Keep-alive**: between speeches the render device plays a faint noise floor (`audio.keepAliveDb`, default -80 dBFS) instead of digital silence, because many wireless headsets power down on silence and swallow the start of the next sentence.
+
 ## Releases and updates
 
 - **Versions** come from git tags (MinVer). Pushing a tag like `v0.2.0` runs the release workflow: self-contained builds for win-x64, linux-x64 and osx-arm64, each with the skill and a `bspeak.release` marker, plus `SHA256SUMS`.

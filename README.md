@@ -27,7 +27,7 @@ The host checks for a new release once a day. When there is one, the agent's fir
 
 ## Use it
 
-Start a sentence with an agent's name ("Atlas, run the tests") when more than one is in the room. Talk over an agent to interrupt it. Say "stop listening" to pause the microphone and "start listening" to resume; you hear a tone each time.
+Start a sentence with an agent's name ("Atlas, run the tests") when more than one is in the room. Talk over an agent to interrupt it. Say "stop listening" to pause the microphone and "start listening" to resume; you hear a tone each time. Ask an agent to turn the volume down or up, or to use a different voice; it changes them for you, and both are remembered.
 
 The usual setup pairs a quick conversational agent with a deeper one working in the background, so the conversation never waits on a long tool call. The skill and `bspeak brief get` describe it.
 
@@ -44,6 +44,7 @@ Without a mic, or to test: `bspeak utterance post "Atlas, what's the status?"` t
 | `tts.phonon.voices`, `tts.kokoro.voices` | six built-in voices each | Phonon names come from Gradium's catalog; voices map across providers by position |
 | `audio.inputDevice`, `audio.outputDevice` | `default` | A name fragment or index from `bspeak device list` |
 | `audio.endOfTurnSilenceMs` | `750` | How long a pause ends your turn |
+| `audio.keepAliveDb` | `-80` | A faint noise floor between speeches so wireless headsets do not power down and clip the next sentence; `null` turns it off |
 | `audio.enabled` | `true` | `false` runs without devices |
 
 The host log is `~/.bspeak/host.log`; `bspeak host get` shows audio state, devices and who is in the room.

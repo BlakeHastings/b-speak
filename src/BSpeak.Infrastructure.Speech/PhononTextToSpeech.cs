@@ -11,8 +11,29 @@ namespace BSpeak.Infrastructure.Speech;
 /// x86-64-v3 CPU (AVX2, FMA, F16C); <see cref="CheckSupported"/> says why it cannot run elsewhere so the
 /// provider chain can step down. Catalog voices are fetched by ptts on first use.
 /// </summary>
-public sealed class PhononTextToSpeech(string exe, string modelDir, PhononOptions options) : ITextToSpeech
+public sealed class PhononTextToSpeech(string exe, string modelDir, PhononOptions options) : ITextToSpeech, IVoiceCatalog
 {
+    /// <summary>English voices from <c>ptts --list-voices</c> (Gradium's catalog), or the configured list if that fails.</summary>
+    public async Task<IReadOnlyList<string>> ListVoicesAsync(CancellationToken ct = default)
+    {
+        try
+        {
+            var psi = new ProcessStartInfo(exe) { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true };
+            psi.ArgumentList.Add("--list-voices");
+            using var process = Process.Start(psi)!;
+            var output = await process.StandardOutput.ReadToEndAsync(ct);
+            _ = process.StandardError.ReadToEndAsync(ct);
+            await process.WaitForExitAsync(ct);
+            var voices = output.Split('\n')
+                .Select(l => l.Split('\t'))
+                .Where(c => c.Length >= 2 && c[1].Trim() == "en" && c[0].Trim().Length > 0)
+                .Select(c => c[0].Trim()).ToList();
+            if (voices.Count > 0) return voices;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException) { }
+        return options.Voices.Count > 0 ? options.Voices : PhononOptions.DefaultVoices;
+    }
+
     private readonly SemaphoreSlim _gate = new(1, 1);
 
     public int SampleRate => 24_000;

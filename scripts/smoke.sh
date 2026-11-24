@@ -50,6 +50,16 @@ next=$("$B" inbox list --as Atlas | grep -o '"next": [0-9]*' | grep -o '[0-9]*$'
 wait $inboxer; check 0 $? "voice agent's inbox wakes on handoff updates"
 grep -q '"kind": "handoff"' "$BSPEAK_HOME/inbox.json"; check 0 $? "the inbox item is the handoff"
 "$B" brief get --as Atlas | grep -q "You: Atlas"; check 0 $? "brief shows who you are"
+
+# Volume and voices, as an agent would change them when asked.
+"$B" volume put 60 | grep -q '"volume": 60'; check 0 $? "volume can be set"
+"$B" volume put down | grep -q '"volume": 45'; check 0 $? "volume steps down"
+"$B" volume put 150 > /dev/null 2>&1; check 2 $? "out-of-range volume is refused"
+"$B" voice list | grep -q '"usedBy": "Atlas"'; check 0 $? "voice list shows who uses which voice"
+nova_voice=$("$B" voice list | grep -B1 '"usedBy": "Nova"' | grep -o '"name": "[^"]*"' | cut -d'"' -f4)
+"$B" participant patch Atlas --voice "$nova_voice" > /dev/null; check 1 $? "a voice someone else uses is refused"
+free_voice=$("$B" voice list | grep -B1 '"usedBy": null' | grep -o '"name": "[^"]*"' | head -1 | cut -d'"' -f4)
+"$B" participant patch Atlas --voice "$free_voice" | grep -q "\"voice\": \"$free_voice\""; check 0 $? "an agent can switch to a free voice"
 "$B" host delete > /dev/null; check 0 $? "stop the host"
 rm -rf "$BSPEAK_HOME"
 exit $fail

@@ -131,12 +131,32 @@ public static class Updates
         return http;
     }
 
+    /// <summary>
+    /// The latest release from GitHub's API, or, when the API refuses (it allows 60 calls an hour per IP),
+    /// from the releases/latest redirect with asset links built from the naming convention.
+    /// </summary>
     public static async Task<Release> LatestReleaseAsync(UpdateOptions options, CancellationToken ct)
     {
         using var http = Http();
         http.Timeout = TimeSpan.FromSeconds(10);
-        var json = await http.GetStringAsync($"https://api.github.com/repos/{options.Repo}/releases/latest", ct);
-        return ParseRelease(json);
+        try
+        {
+            var json = await http.GetStringAsync($"https://api.github.com/repos/{options.Repo}/releases/latest", ct);
+            return ParseRelease(json);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or JsonException or InvalidDataException)
+        {
+            using var noRedirect = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false }) { Timeout = TimeSpan.FromSeconds(10) };
+            noRedirect.DefaultRequestHeaders.UserAgent.ParseAdd("b-speak-updater");
+            using var response = await noRedirect.GetAsync($"https://github.com/{options.Repo}/releases/latest", ct);
+            var tag = response.Headers.Location?.ToString().Split('/').LastOrDefault();
+            if (tag is null || !tag.StartsWith('v')) throw new InvalidDataException("Could not find the latest release.", ex);
+            var version = tag.TrimStart('v');
+            var download = $"https://github.com/{options.Repo}/releases/download/{tag}/";
+            var archive = $"bspeak-{version}-{Platform}{(OperatingSystem.IsWindows() ? ".zip" : ".tar.gz")}";
+            return new Release(tag, $"https://github.com/{options.Repo}/releases/tag/{tag}",
+                [new ReleaseAsset(archive, download + archive), new ReleaseAsset("SHA256SUMS", download + "SHA256SUMS")]);
+        }
     }
 
     /// <summary>Reads a GitHub "latest release" response.</summary>

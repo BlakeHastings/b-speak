@@ -22,6 +22,15 @@ public sealed class AudioRuntime(BSpeakConfig config, RoomService room, Playback
     private RenderDevice? _render;
     private TextToSpeechChain? _tts;
 
+    /// <summary>The playback device once audio is up, for volume changes.</summary>
+    public RenderDevice? Render => _render;
+
+    /// <summary>The voices the speaking engine has, once text to speech is up.</summary>
+    public IReadOnlyList<string>? Voices => _tts?.Voices is { Count: > 0 } v ? v : null;
+
+    /// <summary>The text to speech provider speaking now.</summary>
+    public string? TtsProvider => _tts?.Active;
+
     public AudioStatus Status => new(_state, _error, _capture?.DeviceName, _render?.DeviceName, Describe(config.Stt),
         _tts?.Active ?? $"not started (will try {string.Join(", then ", config.Tts.Providers)})", _tts?.Skipped ?? []);
 
@@ -59,7 +68,7 @@ public sealed class AudioRuntime(BSpeakConfig config, RoomService room, Playback
 
             _state = "opening devices";
             PortAudioSystem.EnsureInitialized();
-            _render = new RenderDevice(config.Audio);
+            _render = new RenderDevice(config.Audio) { Volume = Preferences.Load().Volume / 100f };
             _render.Start();
             _capture = new CaptureDevice(config.Audio);
             _capture.Start();

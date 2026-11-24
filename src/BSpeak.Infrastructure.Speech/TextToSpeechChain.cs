@@ -22,6 +22,7 @@ public sealed class TextToSpeechChain : IStreamingTextToSpeech
     private readonly List<string> _skipped = [];
     private ITextToSpeech? _engine;
     private int _index = -1;
+    private IReadOnlyList<string> _catalog = [];
 
     private TextToSpeechChain(IReadOnlyList<TtsCandidate> candidates, ILogger logger)
     {
@@ -115,9 +116,12 @@ public sealed class TextToSpeechChain : IStreamingTextToSpeech
                 try
                 {
                     var engine = await candidate.Start(ct);
-                    await engine.SynthesizeAsync("Ready.", VoiceFor(i, _roomVoices.FirstOrDefault() ?? candidate.Voices[0]), ct);
+                    var catalog = engine is IVoiceCatalog c ? await c.ListVoicesAsync(ct) : [];
+                    var voices = candidate.Voices.Concat(catalog).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+                    await engine.SynthesizeAsync("Ready.", VoiceFor(i, voices, _roomVoices.FirstOrDefault() ?? candidate.Voices[0]), ct);
                     (_engine as IDisposable)?.Dispose();
                     _engine = engine;
+                    _catalog = voices;
                     _index = i;
                     _logger.LogInformation("[tts] speaking with {Provider}", candidate.Name);
                     return true;
@@ -138,9 +142,18 @@ public sealed class TextToSpeechChain : IStreamingTextToSpeech
         lock (_skipped) _skipped.Add($"{name}: {reason}");
     }
 
-    /// <summary>Maps a room voice to the same position in the given provider's list.</summary>
-    private string VoiceFor(int index, string roomVoice)
+    /// <summary>The voices the speaking provider has: its own list plus whatever its catalog reports.</summary>
+    public IReadOnlyList<string> Voices => _catalog;
+
+    private string VoiceFor(int index, string roomVoice) => VoiceFor(index, index == _index ? _catalog : _candidates[index].Voices, roomVoice);
+
+    /// <summary>
+    /// A voice the provider has is used as is. Otherwise a room voice maps to the same position in the
+    /// provider's list, so each participant keeps a distinct voice after a step-down.
+    /// </summary>
+    private string VoiceFor(int index, IReadOnlyList<string> catalog, string roomVoice)
     {
+        if (catalog.Any(v => v.Equals(roomVoice, StringComparison.OrdinalIgnoreCase))) return roomVoice;
         var voices = _candidates[index].Voices;
         var position = -1;
         for (var i = 0; i < _roomVoices.Count; i++)

@@ -41,6 +41,12 @@ public sealed class AudioOptions
     /// <summary>An utterance is cut and transcribed once it reaches this length.</summary>
     public int MaxUtteranceSeconds { get; set; } = 45;
 
+    /// <summary>
+    /// Level in dBFS of the faint noise played between speeches so devices that power down on silence (many
+    /// wireless headsets) stay awake and do not clip the start of the next sentence. -80 is inaudible; null turns it off.
+    /// </summary>
+    public double? KeepAliveDb { get; set; } = -80;
+
     /// <summary>Playback cushion built before audio starts, to ride out gaps between synthesized sentences.</summary>
     public int RenderPrerollMs { get; set; } = 200;
 }
