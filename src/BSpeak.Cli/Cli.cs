@@ -35,7 +35,7 @@ public static class Json
 /// <summary>Parsed command line: <c>bspeak &lt;resource&gt; &lt;verb&gt; [positional...] [--option value] [--flag]</c>.</summary>
 public sealed class Args
 {
-    private static readonly HashSet<string> Flags = ["wait", "for-you", "no-audio", "background", "help", "play"];
+    private static readonly HashSet<string> Flags = ["wait", "for-you", "no-audio", "background", "help", "play", "claude"];
 
     public List<string> Positional { get; } = [];
     public Dictionary<string, string> Options { get; } = new(StringComparer.OrdinalIgnoreCase);
@@ -111,12 +111,17 @@ public static class Cli
           device list                                      Audio devices (set audio.inputDevice / outputDevice in config.json)
           model list | model pull                          Local model files; pull downloads what is missing
           config get                                       Where config.json is, and what it says
+          version                                          This build: version, platform, install method
+          update check | update                            Is a newer release out? / Install it in place (stops the host)
+          skill install --claude | --dir <skills folder>   Copy the b-speak skill where your harness loads skills
+          setup                                            First run: download the models and check the engines
           selftest [--play] [--provider phonon|kokoro|openai] Speak a sentence and transcribe it back through the real engines
           serve [--no-audio] [--port <n>]                  Run the host in the foreground
         """;
 
     public static async Task<int> RunAsync(string[] argv)
     {
+        Updates.CleanUpOldFiles();
         var args = Args.Parse(argv);
         if (args.Positional.Count == 0 || args.Positional[0] is "help" or "-h" || args.Has("help"))
         {
@@ -132,6 +137,15 @@ public static class Cli
                 return await HostApp.RunAsync(args.Has("no-audio"), args.Int("port"), quiet: args.Has("background"));
             case "model":
                 return await ModelAsync(verb);
+            case "version":
+                Console.WriteLine(Json.Of(new { version = Updates.CurrentVersion, platform = Updates.Platform, method = Updates.InstallMethod, path = AppContext.BaseDirectory }));
+                return ExitCodes.Ok;
+            case "update":
+                return await UpdateAsync(verb);
+            case "skill" when verb == "install":
+                return SkillInstall(args);
+            case "setup":
+                return await SetupAsync();
             case "selftest":
                 return await SelfTest.RunAsync(args.Has("play"), args.Get("provider"));
             case "device" when verb == "list":
@@ -294,6 +308,66 @@ public static class Cli
         }
     }
 
+    private static async Task<int> UpdateAsync(string verb)
+    {
+        var config = Profile.LoadConfig();
+        var status = await Updates.CheckAsync(config.Updates, force: true);
+        if (verb == "check")
+        {
+            Console.WriteLine(Json.Of(status));
+            return ExitCodes.Ok;
+        }
+        if (verb != "") throw new UsageException("Use 'update' or 'update check'.");
+        if (!status.Available)
+        {
+            Console.WriteLine(Json.Of(new { updated = false, current = status.Current, latest = status.Latest, reason = status.Latest is null ? "could not reach GitHub" : "already up to date" }));
+            return ExitCodes.Ok;
+        }
+        if (status.Method == "source")
+        {
+            Console.WriteLine(Json.Error("installed-from-source", "This copy was built from source. Update the clone (git pull) and rerun scripts/install-from-source.sh."));
+            return ExitCodes.Rule;
+        }
+        using var factory = LoggerFactory.Create(b => b.AddSimpleConsole(o => o.SingleLine = true));
+        var release = await Updates.ApplyAsync(config.Updates, factory.CreateLogger("bspeak"), async () => await StopHostQuietlyAsync());
+        Console.WriteLine(Json.Of(new
+        {
+            updated = true,
+            from = status.Current,
+            to = release.Version,
+            notes = release.Url,
+            next = "The host stopped for the update. Join the room again (bspeak participant post) and carry on.",
+        }));
+        return ExitCodes.Ok;
+    }
+
+    private static int SkillInstall(Args args)
+    {
+        var dir = args.Get("dir") ?? (args.Has("claude")
+            ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".claude", "skills")
+            : throw new UsageException("Say where your harness loads skills: --dir <skills folder>, or --claude for Claude Code."));
+        var installed = Updates.InstallSkill(dir);
+        Console.WriteLine(Json.Of(new { installed, updatesWith = "bspeak update" }));
+        return ExitCodes.Ok;
+    }
+
+    /// <summary>First-run setup: download the models, then prove the engines work.</summary>
+    private static async Task<int> SetupAsync()
+    {
+        var model = await ModelAsync("pull");
+        if (model != ExitCodes.Ok) return model;
+        return await SelfTest.RunAsync(play: false);
+    }
+
+    private static async Task StopHostQuietlyAsync()
+    {
+        if (Profile.ReadHostInfo() is not { } info || !await HostApp.IsAliveAsync(info.Port)) return;
+        using var http = new HttpClient();
+        try { await http.DeleteAsync($"http://127.0.0.1:{info.Port}/api/host"); } catch { }
+        for (var i = 0; i < 100 && await HostApp.IsAliveAsync(info.Port); i++) await Task.Delay(100);
+        try { Process.GetProcessById(info.Pid).WaitForExit(5000); } catch { }
+    }
+
     private static async Task<int> StopHostAsync()
     {
         if (Profile.ReadHostInfo() is not { } info || !await HostApp.IsAliveAsync(info.Port))
@@ -334,7 +408,17 @@ public sealed class HostClient
         var exe = Environment.ProcessPath ?? throw new HostUnavailableException("Cannot find the bspeak executable to start the host.");
         var viaDotnet = Path.GetFileNameWithoutExtension(exe).Equals("dotnet", StringComparison.OrdinalIgnoreCase);
         var arguments = viaDotnet ? $"\"{Assembly.GetEntryAssembly()!.Location}\" serve --background" : "serve --background";
-        Process.Start(new ProcessStartInfo(exe, arguments) { UseShellExecute = true, WindowStyle = ProcessWindowStyle.Hidden, WorkingDirectory = Profile.Home });
+        Directory.CreateDirectory(Profile.Home);
+        if (OperatingSystem.IsWindows())
+        {
+            Process.Start(new ProcessStartInfo(exe, arguments) { UseShellExecute = true, WindowStyle = ProcessWindowStyle.Hidden, WorkingDirectory = Profile.Home });
+            return;
+        }
+        // Detach fully so the host never holds the caller's output pipe open (an agent capturing output would hang).
+        var psi = new ProcessStartInfo("/bin/sh") { UseShellExecute = false, WorkingDirectory = Profile.Home };
+        psi.ArgumentList.Add("-c");
+        psi.ArgumentList.Add($"nohup \"{exe}\" {arguments} > /dev/null 2>&1 < /dev/null &");
+        Process.Start(psi)?.WaitForExit();
     }
 
     public async Task<(HttpStatusCode Status, string Body)> RawAsync(HttpMethod method, string path, object? body = null)

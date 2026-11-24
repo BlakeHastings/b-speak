@@ -26,6 +26,7 @@ public sealed class BSpeakConfig
     public AudioOptions Audio { get; set; } = new();
     public SttOptions Stt { get; set; } = new();
     public TtsOptions Tts { get; set; } = new();
+    public UpdateOptions Updates { get; set; } = new();
 
     public RoomSettings ToRoomSettings() => new(
         TimeSpan.FromMilliseconds(Room.UserGapMs),

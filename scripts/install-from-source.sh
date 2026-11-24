@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Builds bspeak, installs it to ~/.bspeak/bin, puts a `bspeak` command on your PATH (~/bin),
 # and installs the b-speak skill for Claude Code (~/.claude/skills/b-speak).
-# Usage: scripts/install.sh
+# Usage: scripts/install-from-source.sh   (for development; everyone else uses install.ps1 / install.sh at the repo root)
 set -euo pipefail
 repo="$(cd "$(dirname "$0")/.." && pwd)"
 home="${BSPEAK_HOME:-$HOME/.bspeak}"
@@ -45,8 +45,9 @@ if [ -f "$bin/bspeak.exe" ]; then
   printf '@echo off\r\n"%s" %%*\r\n' "$winexe" > "$HOME/bin/bspeak.cmd"
 fi
 
-mkdir -p "$HOME/.claude/skills/b-speak"
-cp "$repo/skills/b-speak/"*.md "$HOME/.claude/skills/b-speak/"
+mkdir -p "$bin/skill" && cp -r "$repo/skills/b-speak" "$bin/skill/"
+rm -f "$bin/bspeak.release"   # marks this copy as a source build: updates come from git, not releases
+"$exe" skill install --claude > /dev/null
 
 for asset in voices espeak runtimes; do
   [ -d "$bin/$asset" ] || { echo "Publish is missing $asset/; text to speech will not work." >&2; exit 1; }

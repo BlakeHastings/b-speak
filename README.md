@@ -1,24 +1,35 @@
 # b-speak
 
-Talk with your coding agents and hear them talk back, so you can keep driving them while your hands are busy. A resident host owns the headset, speech to text and text to speech. Agents in any harness with a shell use the `bspeak` CLI to wait for what you say and to speak. Several agents can share the room: they answer when addressed and take turns speaking.
+Talk with your coding agents and hear them talk back, so you can keep driving them while your hands are busy: doing the dishes, walking around, away from the keyboard. A small local host owns your headset, speech to text and text to speech. Agents in any harness with a shell (Claude Code, Codex, OpenCode, Cursor, Gemini CLI, your own scripts) use the `bspeak` command to hear what you say and to speak. Several agents can share the room: they answer when addressed and take turns.
 
-The design is in [docs/architecture.md](docs/architecture.md), and drawn out in [docs/model.html](docs/model.html).
+## Get started
 
-## Install
+Paste this to your coding agent:
 
-Requires the .NET 10 SDK and a headset (the mic must not hear the agent's voice; see `audio.muteMicWhilePlaying` for speakers).
-
-```sh
-scripts/install.sh      # publishes to ~/.bspeak/bin, adds ~/bin/bspeak, installs the Claude Code skill
-bspeak model pull       # downloads Silero VAD, Whisper small.en, Phonon (Gradium's ptts runner) and Kokoro (about 900 MB, once)
-bspeak selftest --play  # speaks a sentence, plays it, and transcribes it back
 ```
+Install b-speak for me by following https://raw.githubusercontent.com/BlakeHastings/b-speak/main/INSTALL.md
+```
+
+It installs the `bspeak` command, downloads the voice models, checks they work, and gives itself the b-speak skill if your harness supports skills. Then start a new session and say something like "let's talk using b-speak".
+
+You need a **headset**, so the microphone does not hear the agent's voice. Windows, macOS (Apple silicon) and Linux (x64) are supported; Windows is the most tested. Docker is optional and gives the fastest voice.
+
+### Install it yourself
+
+- Windows (PowerShell): `irm https://raw.githubusercontent.com/BlakeHastings/b-speak/main/install.ps1 | iex`
+- macOS or Linux: `curl -fsSL https://raw.githubusercontent.com/BlakeHastings/b-speak/main/install.sh | sh`
+
+Then `bspeak setup` to download the models (about 900 MB, once) and `bspeak selftest --play` to hear it. Claude Code users: `bspeak skill install --claude`.
+
+### Updates
+
+The host checks for a new release once a day. When there is one, the agent's first command in a voice session (`bspeak brief get`) tells it to ask you; say yes and it runs `bspeak update`, which installs the new version and refreshes the skill, then carries on. You can also run `bspeak update` yourself, or rerun the install line.
 
 ## Use it
 
-In a Claude Code session, say something like "let's talk using b-speak". The `b-speak` skill has the agent join the room, say hello, and keep a background listener running. Then just talk. Start a sentence with an agent's name ("Atlas, run the tests") when more than one is in the room. Say "stop listening" to pause and "start listening" to resume; you hear a tone each time.
+Start a sentence with an agent's name ("Atlas, run the tests") when more than one is in the room. Talk over an agent to interrupt it. Say "stop listening" to pause the microphone and "start listening" to resume; you hear a tone each time.
 
-Other harnesses: have the agent run `bspeak brief get` and follow it.
+The usual setup pairs a quick conversational agent with a deeper one working in the background, so the conversation never waits on a long tool call. The skill and `bspeak brief get` describe it.
 
 Without a mic, or to test: `bspeak utterance post "Atlas, what's the status?"` types as if you had said it, and `bspeak serve --no-audio` prints speech instead of playing it.
 
@@ -49,10 +60,15 @@ The host log is `~/.bspeak/host.log`; `bspeak host get` shows audio state, devic
 | `src/BSpeak.Cli` | The `bspeak` command |
 | `skills/b-speak` | The Claude Code skill |
 
+The design is in [docs/architecture.md](docs/architecture.md). To build and install from a clone (needs the .NET 10 SDK):
+
 ```sh
-dotnet test          # domain, application and infrastructure tests
-scripts/smoke.sh     # host and CLI end to end, audio off
+scripts/install-from-source.sh   # publishes to ~/.bspeak/bin and installs the Claude Code skill
+dotnet test                      # domain, application and infrastructure tests
+scripts/smoke.sh                 # host and CLI end to end, audio off
 ```
+
+Releases: push a tag like `v0.2.0`; the release workflow builds every platform and publishes it, and installed copies offer the update.
 
 ## License
 

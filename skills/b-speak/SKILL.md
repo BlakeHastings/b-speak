@@ -5,7 +5,7 @@ description: Talk with the user out loud through the b-speak voice tool (bspeak 
 
 # Talking with the user through b-speak
 
-The user is listening through a headset, probably away from the screen. `bspeak` handles the microphone, speech to text, text to speech and turn-taking. You wait for what they say and post what you want to say. Start with `bspeak brief get`: it has the commands and the current state of the room.
+The user is listening through a headset, probably away from the screen. `bspeak` handles the microphone, speech to text, text to speech and turn-taking. You wait for what they say and post what you want to say. Start with `bspeak brief get`: it has the commands and the current state of the room. If it opens with "Update available", ask the user before anything else; if they agree, run `bspeak update` and then carry on.
 
 ## How this is usually set up
 

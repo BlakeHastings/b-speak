@@ -9,12 +9,18 @@ namespace BSpeak.Application;
 /// </summary>
 public static class Brief
 {
-    public static string Render(RoomStatus room, string? you)
+    /// <param name="notice">Something the agent must raise first, such as an available update.</param>
+    public static string Render(RoomStatus room, string? you, string? notice = null)
     {
         var me = you is null ? null : room.Participants.FirstOrDefault(p => Words.Normalize(p.Name) == Words.Normalize(you));
         var sb = new StringBuilder();
         sb.AppendLine("# b-speak brief");
         sb.AppendLine();
+        if (notice is not null)
+        {
+            sb.AppendLine(notice.Trim());
+            sb.AppendLine();
+        }
         sb.AppendLine("You are in a voice conversation with the user. They hear you through a headset and talk back, and they are probably away from the screen. You may be one of several agents in the same room.");
         sb.AppendLine();
         sb.AppendLine("## Room right now");

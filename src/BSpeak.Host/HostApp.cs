@@ -23,7 +23,7 @@ public sealed record HandoffPatch(HandoffStatus Status, string? Note, string? By
 public sealed record ModeRequest(ListeningMode Mode, string? WakeWord);
 public sealed record ErrorBody(string Code, string Message);
 public sealed record EventView(long Seq, DateTimeOffset At, string Type, string Stream, JsonElement Data);
-public sealed record HostStatus(int Pid, DateTimeOffset StartedAt, string Profile, AudioStatus Audio, RoomStatus Room);
+public sealed record HostStatus(string Version, int Pid, DateTimeOffset StartedAt, string Profile, UpdateStatus? Update, AudioStatus Audio, RoomStatus Room);
 
 /// <summary>
 /// The resident host: one per machine. Owns the room, the audio runtime and a localhost HTTP API that
@@ -34,6 +34,9 @@ public static class HostApp
 {
     /// <summary>Longest a single HTTP wait is held open. The CLI repeats waits to cover longer timeouts.</summary>
     public static readonly TimeSpan MaxWait = TimeSpan.FromSeconds(50);
+
+    private static UpdateStatus? _update;
+    private static Task _updateCheck = Task.CompletedTask;
 
     public static async Task<int> RunAsync(bool forceNoAudio, int? port, bool quiet, CancellationToken ct = default)
     {
@@ -89,6 +92,7 @@ public static class HostApp
 
         var audioTask = audio.RunAsync(stopping.Token);
         var tickTask = TickAsync(room, stopping.Token);
+        if (config.Updates.Check) StartUpdateCheck(config, logger, stopping.Token);
         try { await app.WaitForShutdownAsync(ct); }
         finally
         {
@@ -98,6 +102,13 @@ public static class HostApp
         }
         return 0;
     }
+
+    private static void StartUpdateCheck(BSpeakConfig config, ILogger logger, CancellationToken ct) =>
+        _updateCheck = Task.Run(async () =>
+        {
+            _update = await Updates.CheckAsync(config.Updates, ct: ct);
+            if (_update.Available) logger.LogInformation("[host] b-speak {Latest} is available (this is {Current})", _update.Latest, _update.Current);
+        });
 
     private static async Task TickAsync(RoomService room, CancellationToken ct)
     {
@@ -112,14 +123,20 @@ public static class HostApp
 
         api.MapGet("/health", () => Results.Ok(new { ok = true, pid = Environment.ProcessId }));
 
-        api.MapGet("/host", () => new HostStatus(Environment.ProcessId, startedAt, Profile.Home, audio.Status, room.Status()));
+        api.MapGet("/host", () => new HostStatus(Updates.CurrentVersion, Environment.ProcessId, startedAt, Profile.Home, _update, audio.Status, room.Status()));
         api.MapDelete("/host", (IHostApplicationLifetime life) =>
         {
             _ = Task.Run(async () => { await Task.Delay(200); life.StopApplication(); });
             return Results.Ok(new { stopping = true });
         });
 
-        api.MapGet("/brief", (string? @as) => Results.Text(Brief.Render(room.Status(), @as), "text/markdown; charset=utf-8"));
+        api.MapGet("/brief", async (string? @as) =>
+        {
+            if (config.Updates.Check && _updateCheck.IsCompleted && (_update?.CheckedAt is not { } at || DateTimeOffset.UtcNow - at > TimeSpan.FromDays(1)))
+                StartUpdateCheck(config, app.Logger, CancellationToken.None); // long-running hosts recheck daily
+            await Task.WhenAny(_updateCheck, Task.Delay(3000)); // the first brief after a start waits briefly for the check
+            return Results.Text(Brief.Render(room.Status(), @as, _update is { } u ? Updates.Notice(u) : null), "text/markdown; charset=utf-8");
+        });
 
         api.MapPost("/participants", (JoinRequest? body) => room.Join(body?.Name));
         api.MapGet("/participants", () => room.Status().Participants);
