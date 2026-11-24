@@ -35,7 +35,7 @@ public static class Json
 /// <summary>Parsed command line: <c>bspeak &lt;resource&gt; &lt;verb&gt; [positional...] [--option value] [--flag]</c>.</summary>
 public sealed class Args
 {
-    private static readonly HashSet<string> Flags = ["wait", "for-you", "no-audio", "background", "help", "play", "claude"];
+    private static readonly HashSet<string> Flags = ["wait", "for-you", "no-audio", "background", "help", "play", "claude", "version"];
 
     public List<string> Positional { get; } = [];
     public Dictionary<string, string> Options { get; } = new(StringComparer.OrdinalIgnoreCase);
@@ -123,6 +123,7 @@ public static class Cli
     {
         Updates.CleanUpOldFiles();
         var args = Args.Parse(argv);
+        if (args.Positional.Count == 0 && args.Has("version")) args.Positional.Add("version");
         if (args.Positional.Count == 0 || args.Positional[0] is "help" or "-h" || args.Has("help"))
         {
             Console.WriteLine(Help);
