@@ -43,9 +43,9 @@ public sealed class PhononTextToSpeech(string exe, string modelDir, PhononOption
     {
         if (!string.IsNullOrWhiteSpace(options.Path)) return File.Exists(options.Path) ? null : $"tts.phonon.path '{options.Path}' does not exist.";
         if (!OperatingSystem.IsWindows() || RuntimeInformation.ProcessArchitecture != Architecture.X64)
-            return "no prebuilt ptts download for this platform; build it from github.com/gradium-ai/xn-ptts and set tts.phonon.path.";
+            return "Gradium publishes no ready-made ptts for this platform, so this voice is skipped and the next one is used (expected; to use it anyway, build ptts from github.com/gradium-ai/xn-ptts and set tts.phonon.path).";
         if (!Avx2.IsSupported || !Fma.IsSupported)
-            return "this CPU lacks AVX2/FMA, which the prebuilt ptts needs.";
+            return "this CPU lacks AVX2/FMA, which the prebuilt ptts needs, so this voice is skipped and the next one is used.";
         return null;
     }
 

@@ -17,7 +17,7 @@ Pick the line for the user's system and run it. It downloads the latest release 
 
 If `bspeak` is not found afterwards, the current shell has the old PATH: use the full path the installer printed (`~/.bspeak/bin/bspeak`, or `bspeak.exe` on Windows) for the rest of these steps.
 
-On Linux, if the installer reports missing system libraries, install them with the command it prints (speech to text needs `libgomp1`, audio needs ALSA `libasound2`). Desktop distributions usually have both already.
+On Linux, if the installer reports missing system libraries, install them with the command it prints (speech to text needs `libgomp1`, audio needs ALSA: `libasound2`, called `libasound2t64` on Ubuntu 24.04). Desktop distributions usually have both already.
 
 ## 2. Download the voice models and check them
 
@@ -29,7 +29,7 @@ This downloads about 900 MB of speech models once, then speaks a test sentence a
 
 b-speak runs a small background process (the host) that keeps the models loaded; it starts on its own whenever a `bspeak` command needs it. That is expected. `bspeak host delete` stops it.
 
-If Docker is running, b-speak uses it for the fastest voice. Without Docker it steps down to other voices on its own, so Docker is optional.
+If Docker is running, b-speak uses it for the fastest voice. Without Docker it steps down to other voices on its own, so Docker is optional. Warnings that a voice is "unavailable" or "skipped" are expected while it steps down: nothing needs fixing as long as setup ends with `"ok": true`. `"played": false` just means it did not play the test sentence aloud.
 
 ## 3. Give yourself the b-speak skill (if your harness supports skills)
 

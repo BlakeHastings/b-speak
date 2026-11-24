@@ -153,11 +153,13 @@ public static class HostApp
             return changed;
         });
 
-        api.MapGet("/voices", () =>
+        api.MapGet("/voices", async () =>
         {
+            for (var i = 0; i < 50 && audio.TtsProvider is null && audio.Status.State is not ("off" or "failed"); i++) await Task.Delay(100); // a just-started host may still be loading its voice
             var used = room.Status().Participants.ToDictionary(p => p.Voice, p => p.Name, StringComparer.OrdinalIgnoreCase);
             var voices = audio.Voices ?? config.Tts.RoomVoices;
-            return new { provider = audio.TtsProvider, voices = voices.Select(v => new { name = v, usedBy = used.GetValueOrDefault(v) }) };
+            var provider = audio.TtsProvider ?? (audio.Status.State == "off" ? "none (audio is off)" : "starting");
+            return new { provider, voices = voices.Select(v => new { name = v, usedBy = used.GetValueOrDefault(v) }) };
         });
 
         api.MapGet("/volume", () => new { volume = Preferences.Load().Volume });
