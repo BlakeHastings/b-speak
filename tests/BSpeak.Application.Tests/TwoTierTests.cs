@@ -61,6 +61,32 @@ public sealed class TwoTierTests
     }
 
     [Fact]
+    public void Inbox_context_says_who_was_heard_last_and_how_long_ago()
+    {
+        var h = new Harness();
+        var atlas = h.Room.Join("Atlas");
+        h.Room.Join("Nova");
+        Assert.Equal(new RoomContext(null, null, null, null), h.Room.Inbox("Atlas", atlas.InboxAfter).Context);
+
+        h.Say("Atlas, check the build.");                      // to Atlas
+        h.Clock.Advance(5);
+        h.Room.PostSpeech("Atlas", "Build is green.", 1);
+        h.PlayThrough("s1");
+        h.Clock.Advance(60);
+        h.Say("Nova, how is the settings page?");               // a different topic, to Nova
+        h.Clock.Advance(1);
+        h.Room.PostSpeech("Nova", "Halfway done.", 2);
+        h.PlayThrough("s2");
+        h.Clock.Advance(240);                                    // four quiet minutes
+
+        var context = h.Room.Inbox("Atlas", atlas.InboxAfter).Context!;
+        Assert.Equal("Nova", context.LastHeard);
+        Assert.Equal(240, context.LastHeardSecondsAgo);
+        Assert.Equal(302, context.YouLastSpokeSecondsAgo);      // time to open with "Atlas, a follow-up on ..."
+        Assert.Equal(307, context.LastSpokeToYouSecondsAgo);
+    }
+
+    [Fact]
     public async Task Inbox_wait_times_out_with_the_cursor_moved_forward()
     {
         var h = new Harness();

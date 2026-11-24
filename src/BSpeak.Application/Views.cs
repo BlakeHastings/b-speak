@@ -29,7 +29,13 @@ public sealed record InboxItem(long Seq, string Kind, DateTimeOffset At)
 }
 
 /// <param name="Next">Pass back as --after on the next inbox wait.</param>
-public sealed record InboxBatch(IReadOnlyList<InboxItem> Items, long Next, bool TimedOut);
+/// <param name="Context">Who was heard last and how long ago, for deciding whether to open with a micro introduction.</param>
+public sealed record InboxBatch(IReadOnlyList<InboxItem> Items, long Next, bool TimedOut, RoomContext? Context = null);
+
+/// <param name="LastHeard">"user" or the agent heard most recently; null when nobody has spoken yet.</param>
+/// <param name="YouLastSpokeSecondsAgo">When you last finished (or were cut off) speaking; null if you have not spoken.</param>
+/// <param name="LastSpokeToYouSecondsAgo">When the user last said something meant for you.</param>
+public sealed record RoomContext(string? LastHeard, int? LastHeardSecondsAgo, int? YouLastSpokeSecondsAgo, int? LastSpokeToYouSecondsAgo);
 
 /// <param name="ForYou">Addressed to you, to everyone, or unaddressed while you held focus.</param>
 public sealed record UtteranceView(int Id, string Text, string? AddressedTo, string? Focus, bool ForYou, DateTimeOffset At);

@@ -49,6 +49,7 @@ next=$("$B" inbox list --as Atlas | grep -o '"next": [0-9]*' | grep -o '[0-9]*$'
 "$B" handoff patch h1 --status done --note "Fixed. It was racing the session refresh." > /dev/null
 wait $inboxer; check 0 $? "voice agent's inbox wakes on handoff updates"
 grep -q '"kind": "handoff"' "$BSPEAK_HOME/inbox.json"; check 0 $? "the inbox item is the handoff"
+grep -q "\"lastHeard\": " "$BSPEAK_HOME/inbox.json"; check 0 $? "the inbox says who was heard last"
 "$B" brief get --as Atlas | grep -q "You: Atlas"; check 0 $? "brief shows who you are"
 
 # Volume and voices, as an agent would change them when asked.

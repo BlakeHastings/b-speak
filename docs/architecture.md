@@ -206,7 +206,7 @@ Commands are `bspeak <resource> <verb>` with the HTTP verbs `get`, `list`, `post
 | utterance | `post "<text>"` | Type as if you had said it: for testing, or without a mic |
 | selftest | `[--play]` | Speaks a sentence and transcribes it back through the real engines, no mic needed |
 
-| inbox | `list --as <name> [--after <seq>] [--wait]` | The voice agent's wait: utterances, updates on its handoffs, its own interruptions and playback failures. Returns `next` to pass back |
+| inbox | `list --as <name> [--after <seq>] [--wait]` | The voice agent's wait: utterances, updates on its handoffs, its own interruptions and withdrawn speech. Returns `next` to pass back, and a `context` block (who was heard last and how long ago, when you last spoke, when the user last spoke to you) for judging whether to open with a micro introduction |
 | handoff | `post "<task>" --as <name> [--utterance <id>]`, `list [--status] [--wait]`, `get`, `patch --status --note [--by]` | Work passed from the voice agent to the orchestrator; `list --wait` blocks until one is open |
 
 ## A fast voice and a deeper worker

@@ -121,6 +121,40 @@ public sealed class RoomService
         }
     }
 
+    /// <summary>
+    /// Who was heard last and how long ago, from the whole retained log, so an agent can tell whether to open
+    /// with a micro introduction ("Rovo, a follow-up on ...") or just carry on.
+    /// </summary>
+    private RoomContext ContextFor(string name)
+    {
+        var now = _clock.Now;
+        string? lastHeard = null;
+        DateTimeOffset? lastHeardAt = null, youLastSpoke = null, lastToYou = null;
+        foreach (var e in _log.After(0, int.MaxValue))
+        {
+            switch (e.Event)
+            {
+                case UserSpoke u:
+                    (lastHeard, lastHeardAt) = ("user", e.At);
+                    if (IsForYou(u, name)) lastToYou = e.At;
+                    break;
+                case PlaybackStarted s:
+                    (lastHeard, lastHeardAt) = (s.Participant, e.At);
+                    break;
+                case PlaybackFinished f:
+                    (lastHeard, lastHeardAt) = (f.Participant, e.At);
+                    if (f.Participant == name) youLastSpoke = e.At;
+                    break;
+                case SpeechInterrupted i:
+                    (lastHeard, lastHeardAt) = (i.Participant, e.At);
+                    if (i.Participant == name) youLastSpoke = e.At;
+                    break;
+            }
+        }
+        static int? Ago(DateTimeOffset? at, DateTimeOffset now) => at is { } t ? (int)Math.Max(0, (now - t).TotalSeconds) : null;
+        return new RoomContext(lastHeard, Ago(lastHeardAt, now), Ago(youLastSpoke, now), Ago(lastToYou, now));
+    }
+
     /// <summary>The sentences of an interrupted speech the user never heard.</summary>
     private string? Unheard(SpeechInterrupted s) =>
         _speeches.GetValueOrDefault(s.SpeechId) is { } speech ? string.Join(" ", speech.Sentences.Skip(s.HeardThrough + 1)) : null;
@@ -151,7 +185,7 @@ public sealed class RoomService
             }
         }
         var next = events.Count > 0 ? events[^1].Seq : after;
-        return new InboxBatch(items, next, timedOut);
+        return new InboxBatch(items, next, timedOut, ContextFor(name));
     }
 
     public void Leave(string name) => Run(() => _room.Leave(name));
