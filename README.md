@@ -53,3 +53,24 @@ The host log is `~/.bspeak/host.log`; `bspeak host get` shows audio state, devic
 dotnet test          # domain, application and infrastructure tests
 scripts/smoke.sh     # host and CLI end to end, audio off
 ```
+
+## License
+
+b-speak is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version. See [LICENSE](LICENSE).
+
+Copyright (C) 2026 Blake Hastings.
+
+### Third-party components
+
+b-speak downloads models and tools at runtime rather than shipping them. Each keeps its own license:
+
+| Component | Used for | License |
+|---|---|---|
+| Phonon 31M English, Gradium `ptts` and `ptts-openai-server` | Text to speech | Apache-2.0 (model); MIT or Apache-2.0 (runtime) |
+| Kokoro-82M and KokoroSharp | Text to speech fallback | Apache-2.0 (model); MIT (engine) |
+| espeak-ng (bundled by KokoroSharp in the publish output) | Phonemes for Kokoro | GPL-3.0 |
+| Whisper and Whisper.net / whisper.cpp | Speech to text | MIT |
+| Silero VAD | Voice activity detection | MIT |
+| PortAudio and PortAudioSharp2 | Audio devices | MIT-style / Apache-2.0 |
+| NAudio.Core | Resampling | MIT |
+| ONNX Runtime | Model inference | MIT |

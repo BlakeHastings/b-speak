@@ -1,0 +1,8 @@
+<Project>
+  <PropertyGroup>
+    <Authors>Blake Hastings</Authors>
+    <Copyright>Copyright (C) 2026 Blake Hastings</Copyright>
+    <PackageLicenseExpression>GPL-3.0-or-later</PackageLicenseExpression>
+    <RepositoryUrl>https://github.com/BlakeHastings/b-speak</RepositoryUrl>
+  </PropertyGroup>
+</Project>
