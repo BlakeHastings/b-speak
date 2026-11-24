@@ -141,6 +141,28 @@ public sealed class OpenAiTextToSpeech(OpenAiTtsOptions options, HttpClient http
         return request;
     }
 
+    /// <summary>
+    /// Sends, retrying for up to about five seconds while the server answers busy (429 or 503). Servers like
+    /// ptts-openai-server take one request at a time, and a busy answer is not a reason to step down.
+    /// </summary>
+    private async Task<HttpResponseMessage> SendWithRetryAsync(Func<HttpRequestMessage> create, HttpCompletionOption completion, CancellationToken ct)
+    {
+        for (var attempt = 0; ; attempt++)
+        {
+            using var request = create();
+            var response = await http.SendAsync(request, completion, ct);
+            var busy = response.StatusCode is System.Net.HttpStatusCode.TooManyRequests or System.Net.HttpStatusCode.ServiceUnavailable;
+            if (busy && attempt < 25)
+            {
+                response.Dispose();
+                await Task.Delay(200, ct);
+                continue;
+            }
+            response.EnsureSuccessStatusCode();
+            return response;
+        }
+    }
+
     public async Task<float[]> SynthesizeAsync(string text, string voice, CancellationToken ct = default)
     {
         if (options.Streaming)
@@ -149,9 +171,7 @@ public sealed class OpenAiTextToSpeech(OpenAiTtsOptions options, HttpClient http
             await foreach (var chunk in StreamAsync(text, voice, ct)) all.AddRange(chunk);
             return all.ToArray();
         }
-        using var request = Request(text, voice, "wav");
-        using var response = await http.SendAsync(request, ct);
-        response.EnsureSuccessStatusCode();
+        using var response = await SendWithRetryAsync(() => Request(text, voice, "wav"), HttpCompletionOption.ResponseContentRead, ct);
         var (samples, rate) = WavAudio.Decode(await response.Content.ReadAsByteArrayAsync(ct));
         if (rate > 0) _sampleRate = rate;
         return samples;
@@ -164,9 +184,7 @@ public sealed class OpenAiTextToSpeech(OpenAiTtsOptions options, HttpClient http
             yield return await SynthesizeAsync(text, voice, ct);
             yield break;
         }
-        using var request = Request(text, voice, "pcm");
-        using var response = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
-        response.EnsureSuccessStatusCode();
+        using var response = await SendWithRetryAsync(() => Request(text, voice, "pcm"), HttpCompletionOption.ResponseHeadersRead, ct);
         _sampleRate = options.SampleRate;
         await using var body = await response.Content.ReadAsStreamAsync(ct);
         var buffer = new byte[4800]; // 100 ms at 24 kHz

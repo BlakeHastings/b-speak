@@ -98,11 +98,14 @@ public sealed class AudioPlayback(RenderDevice render, ITextToSpeech tts, ILogge
                 {
                     // Audio arrives in pieces from a streaming engine (one piece otherwise) and is played as it comes.
                     PushResampler? resampler = null;
+                    OnsetFade? fade = null;
                     var buffer = new float[16_384];
                     await foreach (var pcm in Generate(chunk, request.Voice, ct))
                     {
                         if (ct.IsCancellationRequested) return;
                         resampler ??= new PushResampler(tts.SampleRate, render.SampleRate);
+                        fade ??= new OnsetFade(tts.SampleRate);
+                        fade.Apply(pcm);
                         resampler.Write(pcm);
                         int n;
                         while ((n = resampler.Read(buffer)) > 0) Play(buffer.AsSpan(0, n));
@@ -141,6 +144,25 @@ public sealed class AudioPlayback(RenderDevice render, ITextToSpeech tts, ILogge
         {
             _active.TryRemove(id, out _);
         }
+    }
+}
+
+/// <summary>
+/// Silences the first 10 ms of each synthesized piece and ramps in over the next 10 ms. Neural codec
+/// decoders (Phonon's among them) emit a small noise burst as they start, heard as a click against
+/// silence; speech itself does not begin that early, so nothing real is lost.
+/// </summary>
+public sealed class OnsetFade(int sampleRate, int muteMs = 10, int rampMs = 10)
+{
+    private readonly int _mute = sampleRate * muteMs / 1000;
+    private readonly int _ramp = Math.Max(1, sampleRate * rampMs / 1000);
+    private int _position;
+
+    /// <summary>Applies the fade in place. Call with consecutive chunks of one piece.</summary>
+    public void Apply(float[] chunk)
+    {
+        for (var i = 0; i < chunk.Length && _position < _mute + _ramp; i++, _position++)
+            chunk[i] *= _position < _mute ? 0f : (float)(0.5 - 0.5 * Math.Cos(Math.PI * (_position - _mute) / _ramp));
     }
 }
 

@@ -75,7 +75,9 @@ public static class SelfTest
             using var render = new RenderDevice(config.Audio);
             render.Start();
             var done = new TaskCompletionSource();
-            render.Write(Resampling.Resample(speech, tts.SampleRate, render.SampleRate));
+            var heard = (float[])speech.Clone();
+            new OnsetFade(tts.SampleRate).Apply(heard); // as AudioPlayback does
+            render.Write(Resampling.Resample(heard, tts.SampleRate, render.SampleRate));
             render.MarkAt(render.WritePosition, () => done.TrySetResult());
             render.EndOfData();
             await done.Task.WaitAsync(TimeSpan.FromSeconds(15));

@@ -79,6 +79,25 @@ public sealed class FirstAudioChunkTests
         Assert.Single(AudioPlayback.FirstAudioChunks("There are 1,250 rows in the table that need a migration before we can ship this."));
 }
 
+public sealed class OnsetFadeTests
+{
+    [Fact]
+    public void Mutes_the_decoder_burst_then_ramps_in_across_chunks()
+    {
+        var fade = new OnsetFade(24_000);                 // 240 samples muted, 240 ramped
+        var first = Enumerable.Repeat(0.5f, 300).ToArray();
+        var second = Enumerable.Repeat(0.5f, 300).ToArray();
+        fade.Apply(first);
+        fade.Apply(second);
+        Assert.All(first[..240], s => Assert.Equal(0f, s));
+        Assert.InRange(first[299], 0.01f, 0.1f);          // early in the ramp
+        Assert.InRange(second[100], 0.36f, 0.39f);        // two thirds through the ramp: gain 0.75
+        Assert.Equal(0.5f, second[299]);                  // untouched after the ramp
+        var steps = first.Concat(second).Zip(first.Concat(second).Skip(1), (a, b) => Math.Abs(b - a)).Max();
+        Assert.True(steps < 0.01f, $"largest step {steps}");
+    }
+}
+
 public sealed class TranscriptCleanerTests
 {
     [Theory]
