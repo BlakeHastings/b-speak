@@ -71,9 +71,9 @@ public static class Profile
           // "stt": { "provider": "whisper", "model": "small.en" },
           // Text to speech providers are tried in order; the first that runs on this machine speaks,
           // and if it fails later the next one takes over.
-          // "tts": { "providers": ["phonon", "kokoro"], "phonon": { "voices": ["Miles", "Harper"] }, "kokoro": { "speed": 1.1 } },
-          // A streaming server first (e.g. docker run -p 8880:8880 -e PTTS_LANG=en ghcr.io/gradium-ai/ptts-openai-server):
-          // "tts": { "providers": ["openai", "phonon", "kokoro"], "openAi": { "endpoint": "http://localhost:8880/v1", "voices": ["Miles", "Harper"] } },
+          // Default: Gradium's streaming server in Docker (started for you), then their CLI, then Kokoro.
+          // "tts": { "providers": ["phonon-server", "phonon", "kokoro"], "phonon": { "voices": ["Miles", "Harper"] }, "kokoro": { "speed": 1.1 } },
+          // Any other OpenAI-compatible server: "tts": { "providers": ["openai", "kokoro"], "openAi": { "endpoint": "http://host:port/v1", "streaming": true } },
         }
         """;
 

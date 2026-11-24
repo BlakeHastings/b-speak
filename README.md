@@ -29,7 +29,7 @@ Without a mic, or to test: `bspeak utterance post "Atlas, what's the status?"` t
 | Setting | Default | |
 |---|---|---|
 | `stt.provider`, `stt.model` | `whisper`, `small.en` | Or `large-v3-turbo` for accuracy; `openai` with `stt.endpoint` for a remote `/v1/audio/transcriptions` |
-| `tts.providers` | `["phonon", "kokoro"]` | Tried in order: the first that runs on this machine speaks, and the next takes over if it fails. `openai` with `tts.openAi.endpoint` adds any `/v1/audio/speech` server (Gradium's streaming `ptts-openai-server`, a LiteLLM gateway) |
+| `tts.providers` | `["phonon-server", "phonon", "kokoro"]` | Tried in order: the first that runs on this machine speaks, and the next takes over if it fails. `phonon-server` runs Gradium's streaming server in Docker for you (container `bspeak-phonon`, left running between hosts; `docker rm -f bspeak-phonon` removes it); `phonon` is their CLI; Kokoro runs anywhere. `openai` with `tts.openAi.endpoint` adds any `/v1/audio/speech` server (Gradium's streaming `ptts-openai-server`, a LiteLLM gateway) |
 | `tts.phonon.voices`, `tts.kokoro.voices` | six built-in voices each | Phonon names come from Gradium's catalog; voices map across providers by position |
 | `audio.inputDevice`, `audio.outputDevice` | `default` | A name fragment or index from `bspeak device list` |
 | `audio.endOfTurnSilenceMs` | `750` | How long a pause ends your turn |

@@ -119,25 +119,66 @@ public sealed class KokoroTextToSpeech : ITextToSpeech, IDisposable
     }
 }
 
-/// <summary>Any OpenAI-compatible <c>/v1/audio/speech</c> endpoint, for example Orpheus behind a LiteLLM gateway.</summary>
-public sealed class OpenAiTextToSpeech(OpenAiTtsOptions options, HttpClient http) : ITextToSpeech
+/// <summary>
+/// Any OpenAI-compatible <c>/v1/audio/speech</c> endpoint, for example Gradium's ptts-openai-server or a
+/// LiteLLM gateway. With <see cref="OpenAiTtsOptions.Streaming"/> it asks for raw 16-bit PCM at
+/// <see cref="OpenAiTtsOptions.SampleRate"/> and hands over audio as the server generates it.
+/// </summary>
+public sealed class OpenAiTextToSpeech(OpenAiTtsOptions options, HttpClient http) : IStreamingTextToSpeech
 {
-    private int _sampleRate = 24_000;
+    private int _sampleRate = options.SampleRate;
 
     public int SampleRate => _sampleRate;
 
-    public async Task<float[]> SynthesizeAsync(string text, string voice, CancellationToken ct = default)
+    private HttpRequestMessage Request(string text, string voice, string format)
     {
         if (string.IsNullOrWhiteSpace(options.Endpoint)) throw new InvalidOperationException("tts.openAi.endpoint is required for the openai provider.");
-        using var request = new HttpRequestMessage(HttpMethod.Post, options.Endpoint.TrimEnd('/') + "/audio/speech")
+        var request = new HttpRequestMessage(HttpMethod.Post, options.Endpoint.TrimEnd('/') + "/audio/speech")
         {
-            Content = JsonContent.Create(new { model = options.Model, input = text, voice, response_format = "wav", speed = options.Speed }),
+            Content = JsonContent.Create(new { model = options.Model, input = text, voice, response_format = format, speed = options.Speed }),
         };
         if (!string.IsNullOrEmpty(options.ApiKey)) request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", options.ApiKey);
+        return request;
+    }
+
+    public async Task<float[]> SynthesizeAsync(string text, string voice, CancellationToken ct = default)
+    {
+        if (options.Streaming)
+        {
+            var all = new List<float>();
+            await foreach (var chunk in StreamAsync(text, voice, ct)) all.AddRange(chunk);
+            return all.ToArray();
+        }
+        using var request = Request(text, voice, "wav");
         using var response = await http.SendAsync(request, ct);
         response.EnsureSuccessStatusCode();
         var (samples, rate) = WavAudio.Decode(await response.Content.ReadAsByteArrayAsync(ct));
         if (rate > 0) _sampleRate = rate;
         return samples;
+    }
+
+    public async IAsyncEnumerable<float[]> StreamAsync(string text, string voice, [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct = default)
+    {
+        if (!options.Streaming)
+        {
+            yield return await SynthesizeAsync(text, voice, ct);
+            yield break;
+        }
+        using var request = Request(text, voice, "pcm");
+        using var response = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
+        response.EnsureSuccessStatusCode();
+        _sampleRate = options.SampleRate;
+        await using var body = await response.Content.ReadAsStreamAsync(ct);
+        var buffer = new byte[4800]; // 100 ms at 24 kHz
+        var carry = -1;              // a leftover odd byte between reads
+        int read;
+        while ((read = await body.ReadAsync(buffer, ct)) > 0)
+        {
+            var bytes = carry >= 0 ? [(byte)carry, .. buffer.AsSpan(0, read)] : buffer.AsSpan(0, read).ToArray();
+            carry = bytes.Length % 2 == 1 ? bytes[^1] : -1;
+            var samples = new float[bytes.Length / 2];
+            for (var i = 0; i < samples.Length; i++) samples[i] = (short)(bytes[i * 2] | (bytes[i * 2 + 1] << 8)) / 32768f;
+            if (samples.Length > 0) yield return samples;
+        }
     }
 }

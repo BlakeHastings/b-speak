@@ -76,6 +76,14 @@ public sealed class AudioPlayback(RenderDevice render, ITextToSpeech tts, ILogge
         return [sentence];
     }
 
+    private IAsyncEnumerable<float[]> Generate(string text, string voice, CancellationToken ct) =>
+        tts is IStreamingTextToSpeech streaming ? streaming.StreamAsync(text, voice, ct) : Once(tts.SynthesizeAsync(text, voice, ct));
+
+    private static async IAsyncEnumerable<float[]> Once(Task<float[]> audio)
+    {
+        yield return await audio;
+    }
+
     private async Task SpeakAsync(PlaybackRequest request, CancellationToken ct)
     {
         var room = _room ?? throw new InvalidOperationException("AudioPlayback is not attached to a room.");
@@ -88,20 +96,36 @@ public sealed class AudioPlayback(RenderDevice render, ITextToSpeech tts, ILogge
                 // Only the first sentence is split: later ones are synthesized while earlier ones play.
                 foreach (var chunk in i == 0 ? FirstAudioChunks(request.Sentences[i]) : [request.Sentences[i]])
                 {
-                    var pcm = await tts.SynthesizeAsync(chunk, request.Voice, ct);
-                    var samples = Resampling.Resample(pcm, tts.SampleRate, render.SampleRate);
-                    if (ct.IsCancellationRequested) return;
-                    var start = render.WritePosition;
-                    render.Write(samples);
-                    if (!started)
+                    // Audio arrives in pieces from a streaming engine (one piece otherwise) and is played as it comes.
+                    PushResampler? resampler = null;
+                    var buffer = new float[16_384];
+                    await foreach (var pcm in Generate(chunk, request.Voice, ct))
                     {
-                        started = true;
-                        render.MarkAt(start + 1, () => room.PlaybackStarted(id));
+                        if (ct.IsCancellationRequested) return;
+                        resampler ??= new PushResampler(tts.SampleRate, render.SampleRate);
+                        resampler.Write(pcm);
+                        int n;
+                        while ((n = resampler.Read(buffer)) > 0) Play(buffer.AsSpan(0, n));
+                    }
+                    if (ct.IsCancellationRequested) return;
+                    if (resampler is not null)
+                    {
+                        int n;
+                        while ((n = resampler.Drain(buffer)) > 0) Play(buffer.AsSpan(0, n));
                     }
                 }
                 var index = i;
                 render.MarkAt(render.WritePosition, () => room.SentencePlayed(id, index));
             }
+            void Play(ReadOnlySpan<float> samples)
+            {
+                var start = render.WritePosition;
+                render.Write(samples);
+                if (started) return;
+                started = true;
+                render.MarkAt(start + 1, () => room.PlaybackStarted(id));
+            }
+
             if (ct.IsCancellationRequested) return;
             if (!started) { room.PlaybackStarted(id); room.PlaybackDrained(id); return; }
             render.MarkAt(render.WritePosition, () => room.PlaybackDrained(id));

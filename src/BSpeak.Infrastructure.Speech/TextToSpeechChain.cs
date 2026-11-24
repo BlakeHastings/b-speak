@@ -13,7 +13,7 @@ public sealed record TtsCandidate(string Name, IReadOnlyList<string> Voices, Fun
 /// Room voices come from the first candidate's list and map to other providers by position, so each
 /// participant keeps a distinct, consistent voice whichever provider is speaking.
 /// </summary>
-public sealed class TextToSpeechChain : ITextToSpeech
+public sealed class TextToSpeechChain : IStreamingTextToSpeech
 {
     private readonly IReadOnlyList<TtsCandidate> _candidates;
     private readonly IReadOnlyList<string> _roomVoices;
@@ -61,6 +61,44 @@ public sealed class TextToSpeechChain : ITextToSpeech
                 Skip(_candidates[index].Name, $"failed while speaking: {ex.Message}");
                 if (!await StepDownAsync(index, ct)) throw;
             }
+        }
+    }
+
+    /// <summary>
+    /// Streams from the active provider when it can stream, otherwise yields its whole result as one chunk.
+    /// A failure before the first chunk steps down and retries; one after audio started is rethrown.
+    /// </summary>
+    public async IAsyncEnumerable<float[]> StreamAsync(string text, string voice, [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct = default)
+    {
+        while (true)
+        {
+            var index = _index;
+            var engine = _engine!;
+            if (engine is not IStreamingTextToSpeech streaming)
+            {
+                yield return await SynthesizeAsync(text, voice, ct);
+                yield break;
+            }
+
+            var chunks = streaming.StreamAsync(text, VoiceFor(index, voice), ct).GetAsyncEnumerator(ct);
+            var any = false;
+            Exception? failure = null;
+            try
+            {
+                while (true)
+                {
+                    bool more;
+                    try { more = await chunks.MoveNextAsync(); }
+                    catch (Exception ex) when (ex is not OperationCanceledException && !any) { failure = ex; break; }
+                    if (!more) yield break;
+                    any = true;
+                    yield return chunks.Current;
+                }
+            }
+            finally { await chunks.DisposeAsync(); }
+
+            Skip(_candidates[index].Name, $"failed while speaking: {failure!.Message}");
+            if (!await StepDownAsync(index, ct)) throw failure;
         }
     }
 

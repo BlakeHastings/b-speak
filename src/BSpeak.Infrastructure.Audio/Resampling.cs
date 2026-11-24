@@ -69,6 +69,21 @@ public sealed class PushResampler
         return want <= 0 ? 0 : _resampler.Read(destination, 0, want);
     }
 
+    /// <summary>
+    /// End of the stream: reads out everything still buffered, including the lookahead margin. Pads a little
+    /// silence so the filter can flush its tail. Call until it returns 0.
+    /// </summary>
+    public int Drain(float[] destination)
+    {
+        lock (_lock)
+        {
+            if (!_drained) { foreach (var _ in Enumerable.Range(0, Lookahead * 2)) _input.Enqueue(0f); _drained = true; }
+        }
+        return _resampler.Read(destination, 0, destination.Length);
+    }
+
+    private bool _drained;
+
     private sealed class QueueProvider(Queue<float> queue, object gate, int rate) : ISampleProvider
     {
         public WaveFormat WaveFormat { get; } = WaveFormat.CreateIeeeFloatWaveFormat(rate, 1);

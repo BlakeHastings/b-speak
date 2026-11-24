@@ -29,8 +29,9 @@ public sealed class TtsOptions
     /// "phonon" (Gradium's ptts runner, CPU), "kokoro" (in-process, runs anywhere .NET does), and "openai"
     /// (any OpenAI-compatible /v1/audio/speech server, for example ptts-openai-server, which streams).
     /// </summary>
-    public List<string> Providers { get; set; } = ["phonon", "kokoro"];
+    public List<string> Providers { get; set; } = ["phonon-server", "phonon", "kokoro"];
 
+    public PhononServerOptions PhononServer { get; set; } = new();
     public PhononOptions Phonon { get; set; } = new();
     public KokoroOptions Kokoro { get; set; } = new();
     public OpenAiTtsOptions OpenAi { get; set; } = new();
@@ -38,7 +39,7 @@ public sealed class TtsOptions
     /// <summary>The voices a provider hands to participants, in order.</summary>
     public IReadOnlyList<string> VoicesFor(string provider) => provider.ToLowerInvariant() switch
     {
-        "phonon" => Phonon.Voices.Count > 0 ? Phonon.Voices : PhononOptions.DefaultVoices,
+        "phonon" or "phonon-server" => Phonon.Voices.Count > 0 ? Phonon.Voices : PhononOptions.DefaultVoices,
         "openai" => OpenAi.Voices.Count > 0 ? OpenAi.Voices : OpenAiTtsOptions.DefaultVoices,
         _ => Kokoro.Voices.Count > 0 ? Kokoro.Voices : KokoroOptions.DefaultVoices,
     };
@@ -95,4 +96,29 @@ public sealed class OpenAiTtsOptions
     public string Model { get; set; } = "tts-1";
 
     public float Speed { get; set; } = 1.0f;
+
+    /// <summary>Ask for raw 16-bit PCM and play it as it arrives. Needs a server that supports <c>response_format: "pcm"</c>.</summary>
+    public bool Streaming { get; set; }
+
+    /// <summary>Sample rate of the server's PCM (OpenAI and ptts-openai-server use 24 kHz).</summary>
+    public int SampleRate { get; set; } = 24_000;
+}
+
+/// <summary>
+/// Gradium's ptts-openai-server, run by b-speak in Docker: started on first use, reused after, and
+/// streamed from. Needs Docker running; otherwise the chain steps down.
+/// </summary>
+public sealed class PhononServerOptions
+{
+    public string Image { get; set; } = "ghcr.io/gradium-ai/ptts-openai-server";
+    public string Container { get; set; } = "bspeak-phonon";
+
+    /// <summary>Port on localhost the container listens on.</summary>
+    public int Port { get; set; } = 8880;
+
+    /// <summary>Weight format inside the container: q8 (default) or f32.</summary>
+    public string Quant { get; set; } = "q8";
+
+    /// <summary>How long to wait for the container to load the model (the first start downloads it).</summary>
+    public int StartTimeoutSeconds { get; set; } = 240;
 }

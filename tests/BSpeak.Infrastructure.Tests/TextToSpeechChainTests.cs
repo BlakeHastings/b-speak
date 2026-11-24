@@ -62,6 +62,43 @@ public sealed class TextToSpeechChainTests
         Assert.Contains(chain.Skipped, s => s.StartsWith("phonon: failed while speaking"));
     }
 
+    private sealed class FakeStreamingTts(bool failBeforeFirstChunk) : IStreamingTextToSpeech
+    {
+        public int SampleRate => 24_000;
+        public bool Broken { get; set; }
+        public Task<float[]> SynthesizeAsync(string text, string voice, CancellationToken ct = default) =>
+            Broken && failBeforeFirstChunk ? throw new InvalidOperationException("server gone") : Task.FromResult(new float[30]);
+
+        public async IAsyncEnumerable<float[]> StreamAsync(string text, string voice, [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct = default)
+        {
+            if (Broken && failBeforeFirstChunk) throw new InvalidOperationException("server gone");
+            for (var i = 0; i < 3; i++) { await Task.Yield(); yield return new float[10]; }
+        }
+    }
+
+    [Fact]
+    public async Task Streams_in_chunks_from_a_streaming_provider()
+    {
+        var chain = await TextToSpeechChain.StartAsync([Works("phonon-server", new FakeStreamingTts(false), "Miles")], NullLogger.Instance);
+        var chunks = 0;
+        await foreach (var _ in chain.StreamAsync("Hi.", "Miles")) chunks++;
+        Assert.Equal(3, chunks);
+    }
+
+    [Fact]
+    public async Task A_stream_that_fails_before_any_audio_steps_down()
+    {
+        var server = new FakeStreamingTts(failBeforeFirstChunk: true);
+        var kokoro = new FakeTts("kokoro");
+        var chain = await TextToSpeechChain.StartAsync([Works("phonon-server", server, "Miles"), Works("kokoro", kokoro, "am_michael")], NullLogger.Instance);
+        server.Broken = true;
+        var chunks = 0;
+        await foreach (var _ in chain.StreamAsync("Hi.", "Miles")) chunks++;
+        Assert.Equal(1, chunks);                // the whole sentence from kokoro
+        Assert.Equal("kokoro", chain.Active);
+        Assert.Equal("am_michael", kokoro.Voices.Last());
+    }
+
     [Fact]
     public async Task Throws_when_nothing_can_start()
     {

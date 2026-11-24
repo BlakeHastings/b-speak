@@ -44,6 +44,9 @@ public static class SelfTest
         clock.Restart();
         await tts.SynthesizeAsync("Sure.", voice);
         var shortTtsMs = clock.ElapsedMilliseconds;
+        clock.Restart();
+        long firstAudioMs = -1;
+        await foreach (var _ in tts.StreamAsync(Sentence, voice)) if (firstAudioMs < 0) firstAudioMs = clock.ElapsedMilliseconds; // time until playback could start
 
         var audio16k = Resampling.Resample(speech, tts.SampleRate, 16_000);
         var padded = new float[16_000].Concat(audio16k).Concat(new float[32_000]).ToArray();
@@ -87,7 +90,7 @@ public static class SelfTest
             speechSeconds = Math.Round(speech.Length / (double)tts.SampleRate, 2),
             voiceDetected = onset,
             turnDetected = committed is not null,
-            loadMs, firstTtsMs, ttsMs, shortTtsMs, firstSttMs, sttMs,
+            loadMs, firstTtsMs, ttsMs, shortTtsMs, firstAudioMs, firstSttMs, sttMs,
             whisperRuntime = stt is WhisperSpeechToText ? WhisperSpeechToText.Runtime : null,
             ttsProvider = tts.Active,
             ttsSkipped = tts.Skipped,
