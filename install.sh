@@ -8,9 +8,11 @@ repo=BlakeHastings/b-speak
 home="${BSPEAK_HOME:-$HOME/.bspeak}"
 bin="$home/bin"
 
-# Already installed from a release: let it update itself.
+# Already installed from a release: let it update itself. If that fails (for example an older
+# build with a broken updater), fall through to a fresh install.
 if [ -x "$bin/bspeak" ] && [ -f "$bin/bspeak.release" ]; then
-  exec "$bin/bspeak" update
+  if "$bin/bspeak" update; then exit 0; fi
+  echo "bspeak update did not succeed; reinstalling from the latest release instead."
 fi
 
 case "$(uname -s)" in

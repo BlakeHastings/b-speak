@@ -329,7 +329,13 @@ public static class Cli
             return ExitCodes.Rule;
         }
         using var factory = LoggerFactory.Create(b => b.AddSimpleConsole(o => o.SingleLine = true));
-        var release = await Updates.ApplyAsync(config.Updates, factory.CreateLogger("bspeak"), async () => await StopHostQuietlyAsync());
+        Release release;
+        try { release = await Updates.ApplyAsync(config.Updates, factory.CreateLogger("bspeak"), async () => await StopHostQuietlyAsync()); }
+        catch (Exception ex)
+        {
+            Console.WriteLine(Json.Error("update-failed", $"{ex.Message} b-speak is unchanged unless the message says otherwise; rerunning the install line also updates."));
+            return ExitCodes.HostUnavailable;
+        }
         Console.WriteLine(Json.Of(new
         {
             updated = true,

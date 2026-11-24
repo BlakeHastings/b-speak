@@ -40,8 +40,8 @@ public sealed class InstallInfo
     }
 }
 
-public sealed record ReleaseAsset(string Name, [property: JsonPropertyName("browser_download_url")] string Url);
-public sealed record Release([property: JsonPropertyName("tag_name")] string Tag, [property: JsonPropertyName("html_url")] string Url, List<ReleaseAsset> Assets)
+public sealed record ReleaseAsset([property: JsonPropertyName("name")] string Name, [property: JsonPropertyName("browser_download_url")] string Url);
+public sealed record Release([property: JsonPropertyName("tag_name")] string Tag, [property: JsonPropertyName("html_url")] string Url, [property: JsonPropertyName("assets")] List<ReleaseAsset> Assets)
 {
     public string Version => Tag.TrimStart('v');
 }
@@ -136,7 +136,14 @@ public static class Updates
         using var http = Http();
         http.Timeout = TimeSpan.FromSeconds(10);
         var json = await http.GetStringAsync($"https://api.github.com/repos/{options.Repo}/releases/latest", ct);
-        return JsonSerializer.Deserialize<Release>(json) ?? throw new InvalidDataException("Empty release.");
+        return ParseRelease(json);
+    }
+
+    /// <summary>Reads a GitHub "latest release" response.</summary>
+    public static Release ParseRelease(string json)
+    {
+        var release = JsonSerializer.Deserialize<Release>(json) ?? throw new InvalidDataException("Empty release.");
+        return release with { Assets = release.Assets ?? [] };
     }
 
     /// <summary>The release platform name for this machine, as used in asset names.</summary>

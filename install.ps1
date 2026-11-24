@@ -10,9 +10,11 @@ $bin = Join-Path $bspeakHome 'bin'
 $exe = Join-Path $bin 'bspeak.exe'
 
 # Already installed from a release: let it update itself (it handles files that are in use).
+# If that fails (for example an older build with a broken updater), fall through to a fresh install.
 if ((Test-Path $exe) -and (Test-Path (Join-Path $bin 'bspeak.release'))) {
     & $exe update
-    exit $LASTEXITCODE
+    if ($LASTEXITCODE -eq 0) { exit 0 }
+    Write-Output "bspeak update did not succeed; reinstalling from the latest release instead."
 }
 
 $arch = if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'arm64' } else { 'x64' }

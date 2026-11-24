@@ -26,6 +26,20 @@ public sealed class UpdateTests
     }
 
     [Fact]
+    public void Parses_a_github_release_response()
+    {
+        const string json = """
+            {"tag_name":"v0.1.1","html_url":"https://github.com/BlakeHastings/b-speak/releases/tag/v0.1.1","name":"b-speak v0.1.1",
+             "assets":[{"name":"bspeak-0.1.1-win-x64.zip","size":1,"browser_download_url":"https://example/win.zip"},
+                       {"name":"SHA256SUMS","size":1,"browser_download_url":"https://example/sums"}]}
+            """;
+        var release = Updates.ParseRelease(json);
+        Assert.Equal("0.1.1", release.Version);
+        Assert.Equal(["bspeak-0.1.1-win-x64.zip", "SHA256SUMS"], release.Assets.Select(a => a.Name));
+        Assert.Equal("https://example/sums", release.Assets[1].Url);
+    }
+
+    [Fact]
     public void Swap_replaces_files_and_adds_new_ones()
     {
         var root = Path.Combine(Path.GetTempPath(), "bspeak-swap-" + Guid.NewGuid().ToString("N"));
