@@ -111,7 +111,7 @@ public static class Cli
           device list                                      Audio devices (set audio.inputDevice / outputDevice in config.json)
           model list | model pull                          Local model files; pull downloads what is missing
           config get                                       Where config.json is, and what it says
-          selftest [--play]                                Speak a sentence and transcribe it back through the real engines
+          selftest [--play] [--provider phonon|kokoro|openai] Speak a sentence and transcribe it back through the real engines
           serve [--no-audio] [--port <n>]                  Run the host in the foreground
         """;
 
@@ -133,7 +133,7 @@ public static class Cli
             case "model":
                 return await ModelAsync(verb);
             case "selftest":
-                return await SelfTest.RunAsync(args.Has("play"));
+                return await SelfTest.RunAsync(args.Has("play"), args.Get("provider"));
             case "device" when verb == "list":
                 Console.WriteLine(Json.Of(PortAudioSystem.List()));
                 return ExitCodes.Ok;

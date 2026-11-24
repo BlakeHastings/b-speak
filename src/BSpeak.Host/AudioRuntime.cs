@@ -5,7 +5,9 @@ using Microsoft.Extensions.Logging;
 
 namespace BSpeak.Host;
 
-public sealed record AudioStatus(string State, string? Error, string? Input, string? Output, string Stt, string Tts);
+/// <param name="Tts">The text to speech provider speaking now.</param>
+/// <param name="TtsSkipped">Providers passed over on the way down the list, with why.</param>
+public sealed record AudioStatus(string State, string? Error, string? Input, string? Output, string Stt, string Tts, IReadOnlyList<string> TtsSkipped);
 
 /// <summary>
 /// Brings the audio side up in the background: downloads missing models, loads the speech engines,
@@ -18,11 +20,14 @@ public sealed class AudioRuntime(BSpeakConfig config, RoomService room, Playback
     private string? _error;
     private CaptureDevice? _capture;
     private RenderDevice? _render;
+    private TextToSpeechChain? _tts;
 
-    public AudioStatus Status => new(_state, _error, _capture?.DeviceName, _render?.DeviceName, Describe(config.Stt), Describe(config.Tts));
+    public AudioStatus Status => new(_state, _error, _capture?.DeviceName, _render?.DeviceName, Describe(config.Stt),
+        _tts?.Active ?? $"not started (will try {string.Join(", then ", config.Tts.Providers)})", _tts?.Skipped ?? []);
 
-    private static string Describe(SttOptions o) => o.Provider.Equals("whisper", StringComparison.OrdinalIgnoreCase) ? $"whisper {o.Model}" : $"{o.Provider} {o.RemoteModel} at {o.Endpoint}";
-    private static string Describe(TtsOptions o) => o.Provider.Equals("kokoro", StringComparison.OrdinalIgnoreCase) ? $"kokoro {o.Variant}" : $"{o.Provider} {o.RemoteModel} at {o.Endpoint}";
+    private static string Describe(SttOptions o) => o.Provider.Equals("whisper", StringComparison.OrdinalIgnoreCase)
+        ? $"whisper {o.Model}{(WhisperSpeechToText.Runtime == "unknown" ? "" : $" on {WhisperSpeechToText.Runtime}")}"
+        : $"{o.Provider} {o.RemoteModel} at {o.Endpoint}";
 
     public async Task RunAsync(CancellationToken ct)
     {
@@ -38,19 +43,19 @@ public sealed class AudioRuntime(BSpeakConfig config, RoomService room, Playback
         {
             _state = "downloading models";
             var store = new ModelStore(Profile.ModelsDir, config.Stt, config.Tts, logger);
-            await store.EnsureAsync(ct);
+            await store.EnsureCoreAsync(ct);
 
             _state = "loading models";
             var http = new HttpClient { Timeout = TimeSpan.FromSeconds(60) };
             var vad = new SileroVad(store.SileroPath);
-            ISpeechToText stt = config.Stt.Provider.Equals("openai", StringComparison.OrdinalIgnoreCase)
-                ? new OpenAiSpeechToText(config.Stt, http)
-                : new WhisperSpeechToText(store.WhisperPath, config.Stt.Language);
-            ITextToSpeech tts = config.Tts.Provider.Equals("openai", StringComparison.OrdinalIgnoreCase)
-                ? new OpenAiTextToSpeech(config.Tts, http)
-                : new KokoroTextToSpeech(store.KokoroPath, config.Tts.Speed, config.Tts.Device);
-            await WarmUpAsync(stt, tts, ct);
+            var stt = SpeechEngines.CreateStt(config.Stt, store, http);
+            await stt.TranscribeAsync(new float[16_000], ct); // warm up: the first call compiles GPU shaders
             if (stt is WhisperSpeechToText) logger.LogInformation("[stt] whisper {Model} on {Runtime}", config.Stt.Model, WhisperSpeechToText.Runtime);
+
+            _state = "starting text to speech";
+            _tts = await SpeechEngines.StartTtsAsync(config.Tts, store, http, logger, ct);
+            var tts = _tts;
+            await WarmVoicesAsync(tts, ct);
 
             _state = "opening devices";
             PortAudioSystem.EnsureInitialized();
@@ -84,17 +89,10 @@ public sealed class AudioRuntime(BSpeakConfig config, RoomService room, Playback
         }
     }
 
-    /// <summary>Runs each engine once so the first real utterance does not pay the load cost.</summary>
-    private async Task WarmUpAsync(ISpeechToText stt, ITextToSpeech tts, CancellationToken ct)
+    /// <summary>Speaks once in every room voice, so a provider that fetches voices on first use (Phonon) has them all before anyone joins.</summary>
+    private async Task WarmVoicesAsync(ITextToSpeech tts, CancellationToken ct)
     {
-        try
-        {
-            await stt.TranscribeAsync(new float[16_000], ct);
-            await tts.SynthesizeAsync("Ready.", config.Tts.EffectiveVoices[0], ct);
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            throw new InvalidOperationException($"A speech engine failed its warm-up: {ex.Message}", ex);
-        }
+        foreach (var voice in config.Tts.RoomVoices.Skip(1))
+            await tts.SynthesizeAsync("Ready.", voice, ct);
     }
 }

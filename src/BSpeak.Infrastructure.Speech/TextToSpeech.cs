@@ -120,7 +120,7 @@ public sealed class KokoroTextToSpeech : ITextToSpeech, IDisposable
 }
 
 /// <summary>Any OpenAI-compatible <c>/v1/audio/speech</c> endpoint, for example Orpheus behind a LiteLLM gateway.</summary>
-public sealed class OpenAiTextToSpeech(TtsOptions options, HttpClient http) : ITextToSpeech
+public sealed class OpenAiTextToSpeech(OpenAiTtsOptions options, HttpClient http) : ITextToSpeech
 {
     private int _sampleRate = 24_000;
 
@@ -128,10 +128,10 @@ public sealed class OpenAiTextToSpeech(TtsOptions options, HttpClient http) : IT
 
     public async Task<float[]> SynthesizeAsync(string text, string voice, CancellationToken ct = default)
     {
-        if (string.IsNullOrWhiteSpace(options.Endpoint)) throw new InvalidOperationException("tts.endpoint is required for the openai provider.");
+        if (string.IsNullOrWhiteSpace(options.Endpoint)) throw new InvalidOperationException("tts.openAi.endpoint is required for the openai provider.");
         using var request = new HttpRequestMessage(HttpMethod.Post, options.Endpoint.TrimEnd('/') + "/audio/speech")
         {
-            Content = JsonContent.Create(new { model = options.RemoteModel, input = text, voice, response_format = "wav", speed = options.Speed }),
+            Content = JsonContent.Create(new { model = options.Model, input = text, voice, response_format = "wav", speed = options.Speed }),
         };
         if (!string.IsNullOrEmpty(options.ApiKey)) request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", options.ApiKey);
         using var response = await http.SendAsync(request, ct);

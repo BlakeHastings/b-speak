@@ -10,7 +10,7 @@ Requires the .NET 10 SDK and a headset (the mic must not hear the agent's voice;
 
 ```sh
 scripts/install.sh      # publishes to ~/.bspeak/bin, adds ~/bin/bspeak, installs the Claude Code skill
-bspeak model pull       # downloads Silero VAD, Whisper small.en and Kokoro (about 800 MB, once)
+bspeak model pull       # downloads Silero VAD, Whisper small.en, Phonon (Gradium's ptts runner) and Kokoro (about 900 MB, once)
 bspeak selftest --play  # speaks a sentence, plays it, and transcribes it back
 ```
 
@@ -29,9 +29,10 @@ Without a mic, or to test: `bspeak utterance post "Atlas, what's the status?"` t
 | Setting | Default | |
 |---|---|---|
 | `stt.provider`, `stt.model` | `whisper`, `small.en` | Or `large-v3-turbo` for accuracy; `openai` with `stt.endpoint` for a remote `/v1/audio/transcriptions` |
-| `tts.provider`, `tts.voices`, `tts.speed` | `kokoro`, six built-in voices, `1.1` | Or `openai` with `tts.endpoint` for a remote `/v1/audio/speech` |
+| `tts.providers` | `["phonon", "kokoro"]` | Tried in order: the first that runs on this machine speaks, and the next takes over if it fails. `openai` with `tts.openAi.endpoint` adds any `/v1/audio/speech` server (Gradium's streaming `ptts-openai-server`, a LiteLLM gateway) |
+| `tts.phonon.voices`, `tts.kokoro.voices` | six built-in voices each | Phonon names come from Gradium's catalog; voices map across providers by position |
 | `audio.inputDevice`, `audio.outputDevice` | `default` | A name fragment or index from `bspeak device list` |
-| `audio.endOfTurnSilenceMs` | `900` | How long a pause ends your turn |
+| `audio.endOfTurnSilenceMs` | `750` | How long a pause ends your turn |
 | `audio.enabled` | `true` | `false` runs without devices |
 
 The host log is `~/.bspeak/host.log`; `bspeak host get` shows audio state, devices and who is in the room.

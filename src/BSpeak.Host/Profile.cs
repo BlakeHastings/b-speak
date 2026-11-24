@@ -30,7 +30,7 @@ public sealed class BSpeakConfig
     public RoomSettings ToRoomSettings() => new(
         TimeSpan.FromMilliseconds(Room.UserGapMs),
         TimeSpan.FromMinutes(Room.IdleTimeoutMinutes),
-        Tts.EffectiveVoices,
+        Tts.RoomVoices,
         new ControlPhrases(Room.PausePhrases, Room.ResumePhrases));
 
     public SpeechRules ToSpeechRules() => new(Room.MaxSpeechLength);
@@ -69,8 +69,11 @@ public static class Profile
         {
           // "audio": { "inputDevice": "default", "outputDevice": "default", "endOfTurnSilenceMs": 750 },
           // "stt": { "provider": "whisper", "model": "small.en" },
-          // "tts": { "provider": "kokoro", "speed": 1.1, "voices": ["am_michael", "af_heart"] },
-          // Remote engines: "tts": { "provider": "openai", "endpoint": "http://localhost:8880/v1", "remoteModel": "tts-1" }
+          // Text to speech providers are tried in order; the first that runs on this machine speaks,
+          // and if it fails later the next one takes over.
+          // "tts": { "providers": ["phonon", "kokoro"], "phonon": { "voices": ["Miles", "Harper"] }, "kokoro": { "speed": 1.1 } },
+          // A streaming server first (e.g. docker run -p 8880:8880 -e PTTS_LANG=en ghcr.io/gradium-ai/ptts-openai-server):
+          // "tts": { "providers": ["openai", "phonon", "kokoro"], "openAi": { "endpoint": "http://localhost:8880/v1", "voices": ["Miles", "Harper"] } },
         }
         """;
 

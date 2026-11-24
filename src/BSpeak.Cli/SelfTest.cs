@@ -17,25 +17,25 @@ public static class SelfTest
 {
     private const string Sentence = "Atlas, please run the tests and tell me what breaks.";
 
-    public static async Task<int> RunAsync(bool play)
+    /// <param name="provider">Test only this text to speech provider instead of the configured list.</param>
+    public static async Task<int> RunAsync(bool play, string? provider = null)
     {
         var config = Profile.LoadConfig();
+        if (provider is not null) config.Tts.Providers = [provider];
         using var factory = LoggerFactory.Create(b => b.AddSimpleConsole(o => o.SingleLine = true));
         var logger = factory.CreateLogger("bspeak");
         var store = new ModelStore(Profile.ModelsDir, config.Stt, config.Tts, logger);
-        await store.EnsureAsync();
+        await store.EnsureCoreAsync();
 
         var http = new HttpClient { Timeout = TimeSpan.FromSeconds(60) };
         var clock = Stopwatch.StartNew();
-        ITextToSpeech tts = config.Tts.Provider.Equals("openai", StringComparison.OrdinalIgnoreCase)
-            ? new OpenAiTextToSpeech(config.Tts, http) : new KokoroTextToSpeech(store.KokoroPath, config.Tts.Speed, config.Tts.Device);
-        ISpeechToText stt = config.Stt.Provider.Equals("openai", StringComparison.OrdinalIgnoreCase)
-            ? new OpenAiSpeechToText(config.Stt, http) : new WhisperSpeechToText(store.WhisperPath, config.Stt.Language);
+        var tts = await SpeechEngines.StartTtsAsync(config.Tts, store, http, logger);
+        var stt = SpeechEngines.CreateStt(config.Stt, store, http);
         var vad = new SileroVad(store.SileroPath);
         var loadMs = clock.ElapsedMilliseconds;
 
         clock.Restart();
-        var voice = config.Tts.EffectiveVoices[0];
+        var voice = config.Tts.RoomVoices[0];
         var speech = await tts.SynthesizeAsync(Sentence, voice);
         var firstTtsMs = clock.ElapsedMilliseconds;
         clock.Restart();
@@ -89,8 +89,8 @@ public static class SelfTest
             turnDetected = committed is not null,
             loadMs, firstTtsMs, ttsMs, shortTtsMs, firstSttMs, sttMs,
             whisperRuntime = stt is WhisperSpeechToText ? WhisperSpeechToText.Runtime : null,
-            ttsDevice = tts is KokoroTextToSpeech k ? k.Device : null,
-            ttsGpuError = tts is KokoroTextToSpeech k2 ? k2.GpuError : null,
+            ttsProvider = tts.Active,
+            ttsSkipped = tts.Skipped,
             played = play,
         }));
         return onset && committed is not null && match ? ExitCodes.Ok : ExitCodes.Rule;
