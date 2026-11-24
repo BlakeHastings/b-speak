@@ -207,30 +207,17 @@ Commands are `bspeak <resource> <verb>` with the HTTP verbs `get`, `list`, `post
 | inbox | `list --as <name> [--after <seq>] [--wait]` | The voice agent's wait: utterances, updates on its handoffs, its own interruptions and playback failures. Returns `next` to pass back |
 | handoff | `post "<task>" --as <name> [--utterance <id>]`, `list [--status] [--wait]`, `get`, `patch --status --note [--by]` | Work passed from the voice agent to the orchestrator; `list --wait` blocks until one is open |
 
-## Two tiers: a fast voice and a deep worker
+## A fast voice and a deeper worker
 
-The cycle that matters is: you stop talking, the agent thinks, the agent speaks. b-speak's part of it is small (end of turn 750 ms, speech to text about 200 ms on the GPU, first audio about half a second for a short clause). The model's turn dominates, and a turn that includes a tool call can take tens of seconds. So the recommended setup splits the work across two agents:
-
-| Role | Model | In the room | Runs tools | Waits on |
-|---|---|---|---|---|
-| **Voice agent** | The harness's fastest (Sonnet or Haiku), ideally a dedicated subagent | Yes | Only `bspeak` | `inbox list --wait` (foreground; it has nothing else to do) |
-| **Orchestrator** | The model the user asked to start b-speak (for example Opus) | No | Everything; delegates to workers | `handoff list --wait` (background, so it can keep working) |
-
-The voice agent answers what it can from the conversation, asks clarifying questions, and acknowledges every request at once. Anything that needs tools it posts as a handoff, written for someone who did not hear the call. The orchestrator claims it (`working`), may post progress notes, and closes it (`done` or `failed`) with a result written to be spoken. The voice agent hears each update in its inbox and tells the user in its own words.
-
-The two agents never talk directly: the handoff is a resource in the host, so the pattern does not depend on any harness's subagent messaging. One agent can play both roles when a harness has no background subagents; it then acknowledges before each tool call.
+In a cycle (you stop talking, the agent thinks, the agent speaks), b-speak's part is small: end of turn 750 ms, speech to text about 200 ms on the GPU, first audio about half a second for a short clause. The model's turn dominates, especially when it runs tools. So the usual setup pairs a quick conversational agent (Sonnet or Haiku, often a background subagent) with a deeper agent (for example Opus) doing the heavy work and orchestrating workers. They keep each other informed however suits the harness: subagent messages, or b-speak's handoffs as a shared queue. The skill and the brief describe this lightly and leave the details to the agents' judgment.
 
 ### The Handoff aggregate
 
-| Operations | Invariants |
-|---|---|
-| `Post`, `Update` | Posted by a participant in the room, with text; may reference an utterance that exists; status moves Open to Working to Done or Failed and never back; closing requires a result note (`handoff-result-required`); a closed handoff never changes |
-
-Events: `HandoffPosted` (handoffId, from, text, utteranceId) and `HandoffUpdated` (handoffId, from, by, status, note). The inbox read model is built from `UserSpoke`, `HandoffUpdated` for the participant's own handoffs, and its own `SpeechInterrupted` and failed `SpeechWithdrawn`; its cursor is the event sequence. `handoff-unknown` is a not-found (exit 4).
+An optional queue for passing work between agents. `Post` needs a participant in the room and some text, and may reference an utterance; `Update` moves it Open to Working to Done or Failed, never back, and closing it needs a result note (`handoff-result-required`). Events: `HandoffPosted` and `HandoffUpdated`. The inbox read model is built from `UserSpoke`, updates on the participant's own handoffs, and its own interruptions and failed playback; its cursor is the event sequence. `handoff-unknown` is a not-found (exit 4).
 
 ## The skill (prose)
 
-`skills/b-speak/SKILL.md` is the orchestrator's playbook: spawn the voice agent, run the handoff loop, write spoken results, recover from restarts. `skills/b-speak/voice-agent.md` is the voice agent's instructions, which the orchestrator points it at. The harness-neutral version of both lives in `bspeak brief get`.
+`skills/b-speak/SKILL.md` covers joining, listening, speaking, the usual two-agent setup, and recovering when the room pushes back. The harness-neutral version lives in `bspeak brief get`.
 
 ## Not built yet
 

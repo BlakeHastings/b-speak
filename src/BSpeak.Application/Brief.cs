@@ -27,24 +27,17 @@ public static class Brief
         sb.AppendLine($"- Utterances so far: {room.Utterances}");
         sb.AppendLine();
         sb.AppendLine("""
-            ## Two roles: a fast voice, a deep worker
+            ## How this is usually set up
 
-            The conversation must never wait on a tool call, so split it:
+            Conversation feels broken when the speaker goes quiet while a tool runs, so the common setup pairs a quick conversational agent (the harness's fastest model, often a background subagent) with a deeper agent doing the heavy work. They keep each other informed however suits the harness; `bspeak handoff` is there if a shared queue helps (`handoff post` to pass work, `handoff list --wait` to pick it up, `handoff patch <id> --status done --note "..."` to report back). A short exchange may not need two agents at all.
 
-            - **Voice agent**: the fastest model your harness has, ideally a dedicated subagent. It joins the room, talks, and runs no tools except `bspeak`. Anything that needs real work it acknowledges out loud and passes on with `bspeak handoff post`.
-            - **Orchestrator**: the model that was asked to start b-speak. It stays out of the room, waits with `bspeak handoff list --wait`, claims each handoff (`handoff patch <id> --status working`), does the work (or delegates it), and closes it with a result written to be spoken (`--status done --note "..."`). The voice agent hears every update in its inbox and tells the user.
+            ## Joining and listening
 
-            One agent can play both roles if it must, but then it has to acknowledge before every tool call and keep tool runs short.
-
-            ## The voice agent's loop
-
-            1. Join once: `bspeak participant post` (add `--name <Name>` to choose a name). Note `name` and `inboxAfter`, and pass `--as <Name>` on every command after this.
-            2. Say a short hello so the user knows you are there: `bspeak speech post "Atlas here. Ready when you are." --as Atlas`.
-            3. Wait: `bspeak inbox list --as <Name> --after <inboxAfter> --wait`. It exits when the user finishes a sentence, a handoff you posted changes, or you are interrupted. Handle every item, then wait again with `--after` set to the `next` it printed. Exit code 3 means nothing happened: wait again.
-            4. Speak with `bspeak speech post "<text>" --as <Name> --reply-to <utterance id>`. Hand off with `bspeak handoff post "<task, written for someone who did not hear the call>" --as <Name> --utterance <id>`.
+            1. Join: `bspeak participant post` (add `--name <Name>` to choose a name). Note `name` and `inboxAfter`, and pass `--as <Name>` on later commands.
+            2. Say a short hello so the user knows you are there.
+            3. Wait: `bspeak inbox list --as <Name> --after <inboxAfter> --wait`. It returns when the user finishes a sentence, a handoff you posted changes, or you are interrupted. Wait again with `--after` set to the `next` it printed. Exit code 3 means nothing happened.
+            4. Speak with `bspeak speech post "<text>" --as <Name> --reply-to <utterance id>`.
             5. When the conversation is over, leave: `bspeak participant delete <Name>`.
-
-            Simple agents that only talk can use `bspeak utterance list --as <Name> --after <id> --wait` instead of the inbox.
 
             ## Who answers
 
