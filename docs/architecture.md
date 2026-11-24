@@ -169,7 +169,7 @@ Control phrases and addressing are not policies: they are part of how `RecordUtt
 
 ## Messaging
 
-The host keeps an **event log** with increasing sequence numbers, in memory for v1. Each reader keeps its own position, so every participant sees everything. Agents read the utterance feed built from it with `utterance list --after <utterance id> --wait`; `event list --after <seq>` reads the raw log. A host restart clears the log and the room; agents rejoin. Persisting transcripts (to SQLite in the profile folder) is a later option, not a v1 requirement.
+The host keeps an **event log** with increasing sequence numbers, in memory for v1. Each reader keeps its own position, so every participant sees everything. Agents read the utterance feed built from it with `utterance list --after <utterance id> --wait`; `event list --after <seq>` reads the raw log. `room tui` is a read model over the same log: it replays it from the start, follows it with long polls, and reconciles against `GET /api/host` every second for presence and who has a wait open. It never starts a host, and it starts over when the host's pid changes. A host restart clears the log and the room; agents rejoin. Persisting transcripts (to SQLite in the profile folder) is a later option, not a v1 requirement.
 
 ## Providers
 

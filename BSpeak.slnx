@@ -9,6 +9,7 @@
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/BSpeak.Application.Tests/BSpeak.Application.Tests.csproj" />
+    <Project Path="tests/BSpeak.Cli.Tests/BSpeak.Cli.Tests.csproj" />
     <Project Path="tests/BSpeak.Domain.Tests/BSpeak.Domain.Tests.csproj" />
     <Project Path="tests/BSpeak.Infrastructure.Tests/BSpeak.Infrastructure.Tests.csproj" />
   </Folder>

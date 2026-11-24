@@ -35,7 +35,7 @@ public static class Json
 /// <summary>Parsed command line: <c>bspeak &lt;resource&gt; &lt;verb&gt; [positional...] [--option value] [--flag]</c>.</summary>
 public sealed class Args
 {
-    private static readonly HashSet<string> Flags = ["wait", "for-you", "no-audio", "background", "help", "play", "claude", "version"];
+    private static readonly HashSet<string> Flags = ["wait", "for-you", "no-audio", "background", "help", "play", "claude", "version", "once"];
 
     public List<string> Positional { get; } = [];
     public Dictionary<string, string> Options { get; } = new(StringComparer.OrdinalIgnoreCase);
@@ -109,6 +109,8 @@ public static class Cli
           listening put on|off [--as <name>]               Same as saying "start listening" / "stop listening"
           listening patch --mode always|wake-word [--wake-word "<phrase>"]
           event list [--after <seq>] [--wait]              The raw event log
+          room tui [--once]                                Live view of the room: who is here, who is talking, what was said
+                                                           --once prints a single plain-text frame
           host get                                         Status: audio, devices, models, room
           host delete                                      Stop the host
           device list                                      Audio devices (set audio.inputDevice / outputDevice in config.json)
@@ -160,6 +162,8 @@ public static class Cli
                 return ExitCodes.Ok;
             case "host" when verb == "delete":
                 return await StopHostAsync();
+            case "room" when verb == "tui":
+                return args.Has("once") ? await Tui.RoomTui.OnceAsync() : await Tui.RoomTui.RunAsync();
         }
 
         var client = await HostClient.ConnectAsync();
@@ -422,6 +426,10 @@ public sealed class HostClient
         }
         throw new HostUnavailableException($"The b-speak host did not start. See {Profile.LogPath}.");
     }
+
+    /// <summary>Connects to a host that is already running, without starting one.</summary>
+    public static async Task<HostClient?> TryExistingAsync() =>
+        Profile.ReadHostInfo() is { } info && await HostApp.IsAliveAsync(info.Port) ? new HostClient(info.Port) : null;
 
     private static void StartHost()
     {

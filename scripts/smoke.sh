@@ -51,6 +51,7 @@ wait $inboxer; check 0 $? "voice agent's inbox wakes on handoff updates"
 grep -q '"kind": "handoff"' "$BSPEAK_HOME/inbox.json"; check 0 $? "the inbox item is the handoff"
 grep -q "\"lastHeard\": " "$BSPEAK_HOME/inbox.json"; check 0 $? "the inbox says who was heard last"
 "$B" brief get --as Atlas | grep -q "You: Atlas"; check 0 $? "brief shows who you are"
+"$B" room tui --once | grep -q "handed off: Fix the flaky login test"; check 0 $? "room view shows who is here and what happened"
 
 # Volume and voices, as an agent would change them when asked.
 "$B" volume put 60 | grep -q '"volume": 60'; check 0 $? "volume can be set"

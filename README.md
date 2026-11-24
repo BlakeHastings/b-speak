@@ -29,6 +29,8 @@ The host checks for a new release once a day. When there is one, the agent's fir
 
 Start a sentence with an agent's name ("Atlas, run the tests") when more than one is in the room. Talk over an agent to interrupt it. Say "stop listening" to pause the microphone and "start listening" to resume; you hear a tone each time. Ask an agent to turn the volume down or up, or to use a different voice; it changes them for you, and both are remembered.
 
+To see the room, run `bspeak room tui` in a spare terminal. It shows who is in the room, who is talking, who is waiting to speak and what they want to say, and a running log of what was said. Space pauses or resumes listening, `+` and `-` change the volume, and `q` quits.
+
 The usual setup pairs a quick conversational agent with a deeper one working in the background, so the conversation never waits on a long tool call. The skill and `bspeak brief get` describe it.
 
 Without a mic, or to test: `bspeak utterance post "Atlas, what's the status?"` types as if you had said it, and `bspeak serve --no-audio` prints speech instead of playing it.
