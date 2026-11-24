@@ -121,6 +121,10 @@ public sealed class RoomService
         }
     }
 
+    /// <summary>The sentences of an interrupted speech the user never heard.</summary>
+    private string? Unheard(SpeechInterrupted s) =>
+        _speeches.GetValueOrDefault(s.SpeechId) is { } speech ? string.Join(" ", speech.Sentences.Skip(s.HeardThrough + 1)) : null;
+
     private InboxBatch InboxFor(string name, long after, bool timedOut)
     {
         var events = _log.After(after, int.MaxValue);
@@ -136,10 +140,13 @@ public sealed class RoomService
                     items.Add(new InboxItem(e.Seq, "handoff", e.At) { HandoffId = h.HandoffId, Status = h.Status, Text = h.Note, By = h.By });
                     break;
                 case SpeechInterrupted s when s.Participant == name:
-                    items.Add(new InboxItem(e.Seq, "speech-interrupted", e.At) { SpeechId = s.SpeechId, Text = s.HeardText });
+                    items.Add(new InboxItem(e.Seq, "speech-interrupted", e.At) { SpeechId = s.SpeechId, Text = s.HeardText, Unheard = Unheard(s) });
                     break;
                 case SpeechWithdrawn w when w.Participant == name && w.Reason == WithdrawReason.PlaybackFailed:
-                    items.Add(new InboxItem(e.Seq, "speech-failed", e.At) { SpeechId = w.SpeechId });
+                    items.Add(new InboxItem(e.Seq, "speech-failed", e.At) { SpeechId = w.SpeechId, Text = _speeches.GetValueOrDefault(w.SpeechId)?.Text });
+                    break;
+                case SpeechWithdrawn w when w.Participant == name && w.Reason is WithdrawReason.Interrupted or WithdrawReason.UserSpoke:
+                    items.Add(new InboxItem(e.Seq, "speech-withdrawn", e.At) { SpeechId = w.SpeechId, Text = _speeches.GetValueOrDefault(w.SpeechId)?.Text, Reason = w.Reason == WithdrawReason.Interrupted ? "interrupted" : "user-spoke" });
                     break;
             }
         }
@@ -306,6 +313,9 @@ public sealed class RoomService
             case UserStartedSpeaking:
                 BargeIn();
                 break;
+            case UserSpoke:
+                WithdrawStaleSpeech();
+                break;
             case ParticipantLeft left:
                 foreach (var s in _speeches.Values.Where(s => s.Participant == left.Name && s.State == SpeechState.Queued).ToList())
                 {
@@ -332,18 +342,31 @@ public sealed class RoomService
         }
     }
 
-    /// <summary>You started speaking: stop whoever holds the floor at once.</summary>
+    /// <summary>
+    /// You started speaking: stop whoever holds the floor at once. A speech that had not started yet is
+    /// withdrawn rather than put back, so the agent decides whether it still wants to say it.
+    /// </summary>
     private void BargeIn()
     {
         if (_room.FloorHolder is not { } holder) return;
         var speech = _speeches[holder.SpeechId];
-        if (speech.State == SpeechState.Playing)
-        {
-            speech.Interrupt();
-            _room.ReleaseFloor(holder.SpeechId, _clock.Now);
-        }
-        else _room.ReturnFloor(holder.SpeechId, _clock.Now);
+        if (speech.State == SpeechState.Playing) speech.Interrupt();
+        else speech.Withdraw(speech.Participant, WithdrawReason.Interrupted);
+        _room.ReleaseFloor(holder.SpeechId, _clock.Now);
         _effects.Add(() => _playback.Stop(holder.SpeechId));
+    }
+
+    /// <summary>
+    /// You said something new: every speech still waiting was written before it, so withdraw them all and let
+    /// each agent decide whether to say it again. Noise and coughs (no utterance) leave the queue alone.
+    /// </summary>
+    private void WithdrawStaleSpeech()
+    {
+        foreach (var s in _speeches.Values.Where(s => s.State == SpeechState.Queued).ToList())
+        {
+            s.Withdraw(s.Participant, WithdrawReason.UserSpoke);
+            _room.ReleaseFloor(s.Id, _clock.Now);
+        }
     }
 
     // ================= plumbing

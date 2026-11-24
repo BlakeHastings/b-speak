@@ -69,7 +69,7 @@ public static class Brief
 
             - `conversation-moved-on`: the user said something newer to you. Your next inbox wait returns it; answer that instead.
             - `speech-markdown`, `speech-too-long`: rewrite it as speech and post again.
-            - Interrupted (`speech post --wait` or `speech get` shows `interrupted` and `heardText`): the user cut you off on purpose. Listen to what they said next instead of repeating yourself.
+            - Interrupted or withdrawn: when the user talks over you, the room stops your speech and withdraws anything else you had waiting; it never resumes on its own. Your inbox says so (`speech-interrupted` with what they heard and what they did not, `speech-withdrawn` with the text that never played). Read what they said first, then decide: answer that, say a shortened version of what is still worth saying, or drop it. Do not repost the old text as it was.
             - `participant-unknown`, or exit code 5: the host restarted or dropped you. Join again.
             """);
         return sb.ToString();

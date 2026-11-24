@@ -34,7 +34,7 @@ If they ask you to turn it down (or up), run `bspeak volume put down` (`up`, or 
 ## When the room pushes back
 
 - `conversation-moved-on`: they said something newer; your next wait has it.
-- Interrupted (an inbox item of kind `speech-interrupted`): they talked over you on purpose. Respond to what they said next.
+- Interrupted or withdrawn (inbox items `speech-interrupted` and `speech-withdrawn`): when they talk over you, b-speak stops you and drops whatever you had queued; nothing resumes on its own. Read what they said, then decide whether anything you were going to say still matters. Usually answer them instead; if something is still worth saying, say a shorter version. Never repost the old text unchanged.
 - "Stop listening": nothing reaches you until "start listening". Keep waiting anyway.
 - `participant-unknown` or exit code 5: the host restarted. Join again.
 

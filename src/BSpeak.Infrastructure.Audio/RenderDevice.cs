@@ -83,10 +83,17 @@ public sealed class RenderDevice : IDisposable
     /// <summary>The sample position the next written sample will occupy.</summary>
     public long WritePosition { get { lock (_gate) return _written; } }
 
-    public void Write(ReadOnlySpan<float> samples)
+    /// <summary>Changes on every flush. Writes tagged with an older generation are dropped (audio still in flight from a stopped speech).</summary>
+    public long Generation { get { lock (_gate) return _generation; } }
+
+    private long _generation;
+
+    /// <param name="generation">The <see cref="Generation"/> the writer started under; null always writes.</param>
+    public void Write(ReadOnlySpan<float> samples, long? generation = null)
     {
         lock (_gate)
         {
+            if (generation is { } g && g != _generation) return;
             foreach (var s in samples) _ring.Enqueue(s);
             _written += samples.Length;
             _endOfData = false;
@@ -119,6 +126,7 @@ public sealed class RenderDevice : IDisposable
             _markers.Clear();
             _written = _played;
             _primed = false;
+            _generation++;
         }
     }
 

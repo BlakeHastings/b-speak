@@ -8,7 +8,7 @@ public sealed record JoinResult(string Name, string Voice, int After, long Inbox
 
 public sealed record HandoffView(string Id, string From, string Text, int? UtteranceId, HandoffStatus Status, IReadOnlyList<HandoffNote> Notes);
 
-/// <summary>One thing in a voice agent's inbox. <see cref="Kind"/> is utterance, handoff, speech-interrupted or speech-failed.</summary>
+/// <summary>One thing in a voice agent's inbox. <see cref="Kind"/> is utterance, handoff, speech-interrupted, speech-withdrawn or speech-failed.</summary>
 public sealed record InboxItem(long Seq, string Kind, DateTimeOffset At)
 {
     public int? UtteranceId { get; init; }
@@ -20,6 +20,12 @@ public sealed record InboxItem(long Seq, string Kind, DateTimeOffset At)
     public HandoffStatus? Status { get; init; }
     public string? By { get; init; }
     public string? SpeechId { get; init; }
+
+    /// <summary>For speech-interrupted: the part the user never heard (Text is the part they did).</summary>
+    public string? Unheard { get; init; }
+
+    /// <summary>For speech-withdrawn: interrupted (cut off before it started) or user-spoke (the user said something new first).</summary>
+    public string? Reason { get; init; }
 }
 
 /// <param name="Next">Pass back as --after on the next inbox wait.</param>

@@ -24,6 +24,12 @@ public enum WithdrawReason
 
     /// <summary>Text to speech or the audio device failed before any of it played.</summary>
     PlaybackFailed,
+
+    /// <summary>It had the floor but had not started playing when the user began talking.</summary>
+    Interrupted,
+
+    /// <summary>It was still waiting when the user said something new, so it may no longer fit.</summary>
+    UserSpoke,
 }
 
 // Room

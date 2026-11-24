@@ -89,6 +89,7 @@ public sealed class AudioPlayback(RenderDevice render, ITextToSpeech tts, ILogge
         var room = _room ?? throw new InvalidOperationException("AudioPlayback is not attached to a room.");
         var id = request.SpeechId;
         var started = false;
+        var generation = render.Generation; // a barge-in flush advances it, so late chunks from this speech are dropped
         try
         {
             for (var i = 0; i < request.Sentences.Count; i++)
@@ -123,7 +124,8 @@ public sealed class AudioPlayback(RenderDevice render, ITextToSpeech tts, ILogge
             void Play(ReadOnlySpan<float> samples)
             {
                 var start = render.WritePosition;
-                render.Write(samples);
+                render.Write(samples, generation);
+                if (render.Generation != generation) return;
                 if (started) return;
                 started = true;
                 render.MarkAt(start + 1, () => room.PlaybackStarted(id));

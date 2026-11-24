@@ -139,19 +139,64 @@ public sealed class RoomServiceTests
     }
 
     [Fact]
-    public void Barge_in_before_playback_starts_returns_the_speech_to_the_queue()
+    public void Barge_in_before_playback_starts_withdraws_the_speech_instead_of_replaying_it()
     {
         var h = new Harness();
-        h.Room.Join("Atlas");
+        var atlas = h.Room.Join("Atlas");
         h.Room.PostSpeech("Atlas", "Done.", null);
         h.Say("Hold on a second.");
         Assert.Equal(["play s1", "stop s1"], h.Playback.Calls);
-        Assert.Equal(SpeechState.Queued, h.Room.GetSpeech("s1").State);
-        Assert.Equal(["s1"], h.Room.Status().Queue.Select(q => q.SpeechId));
+        Assert.Equal(SpeechState.Withdrawn, h.Room.GetSpeech("s1").State);
+        Assert.Empty(h.Room.Status().Queue);
 
         h.Clock.Advance(1);
         h.Room.Tick();
-        Assert.Equal("play s1", h.Playback.Calls.Last());
+        Assert.Equal("stop s1", h.Playback.Calls.Last());                   // nothing plays after you finish
+
+        var withdrawn = h.Room.Inbox("Atlas", atlas.InboxAfter).Items.Single(i => i.Kind == "speech-withdrawn");
+        Assert.Equal(("Done.", "interrupted"), (withdrawn.Text, withdrawn.Reason));
+    }
+
+    [Fact]
+    public void Everything_still_waiting_is_withdrawn_when_you_say_something_new()
+    {
+        var h = new Harness();
+        var atlas = h.Room.Join("Atlas");
+        h.Room.Join("Nova");
+        h.Room.PostSpeech("Atlas", "First point.", null);
+        h.Room.PlaybackStarted("s1");
+        h.Room.PostSpeech("Atlas", "Second point, queued behind the first.", null);
+        h.Room.PostSpeech("Nova", "Something from Nova.", null);
+
+        h.Say("Wait, stop.");
+        Assert.Equal(SpeechState.Interrupted, h.Room.GetSpeech("s1").State);
+        Assert.Equal(SpeechState.Withdrawn, h.Room.GetSpeech("s2").State);
+        Assert.Equal(SpeechState.Withdrawn, h.Room.GetSpeech("s3").State);
+        h.Clock.Advance(2);
+        h.Room.Tick();
+        Assert.DoesNotContain("play s2", h.Playback.Calls);
+        Assert.DoesNotContain("play s3", h.Playback.Calls);
+
+        var items = h.Room.Inbox("Atlas", atlas.InboxAfter).Items;
+        var interrupted = items.Single(i => i.Kind == "speech-interrupted");
+        Assert.Equal(("", "First point."), (interrupted.Text, interrupted.Unheard));
+        var withdrawn = items.Single(i => i.Kind == "speech-withdrawn");
+        Assert.Equal(("s2", "user-spoke"), (withdrawn.SpeechId, withdrawn.Reason));
+        Assert.Contains(items, i => i.Kind == "utterance");
+    }
+
+    [Fact]
+    public void A_cough_stops_playback_but_leaves_the_queue_alone()
+    {
+        var h = new Harness();
+        h.Room.Join("Atlas");
+        h.Room.PostSpeech("Atlas", "First.", null);
+        h.Room.PlaybackStarted("s1");
+        h.Room.PostSpeech("Atlas", "Second.", null);
+        h.Room.SpeechOnset();
+        h.Room.Utterance("");                                              // noise: no words
+        Assert.Equal(SpeechState.Interrupted, h.Room.GetSpeech("s1").State);
+        Assert.Equal(SpeechState.Queued, h.Room.GetSpeech("s2").State);
     }
 
     [Fact]

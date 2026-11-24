@@ -92,7 +92,7 @@ Only one voice plays at a time.
 
 - `speech post` queues a Speech and requests the floor. Requests are granted in order.
 - The floor is never granted while you are speaking, or until a short gap (700 ms by default) after you stop or after the previous speech ends, so you always get the chance to answer first.
-- When you start speaking during playback, playback stops at once (barge-in). With a headset the mic does not hear the speaker, so barge-in works in v1 without echo cancellation. The interrupted Speech records the last sentence you fully heard, so the agent knows what got through. A speech that had the floor but had not started playing goes back to the front of the queue instead.
+- When you start speaking during playback, playback stops at once (barge-in). With a headset the mic does not hear the speaker, so barge-in works in v1 without echo cancellation. The interrupted Speech records the last sentence you fully heard, so the agent knows what got through. A speech that had the floor but had not started playing is withdrawn, and once you finish a sentence everything still queued is withdrawn too: nothing resumes on its own, so each agent decides whether what it was going to say still fits.
 - `--reply-to <utterance>` makes the speech conditional: if a newer utterance meant for this participant (addressed to it, to everyone, or unaddressed while it holds focus) arrived after it, the post is rejected with the rule `conversation-moved-on`, so the agent reads the new utterance before answering a stale one.
 
 ### Listening modes and the toggle
@@ -157,7 +157,8 @@ The host plays a short earcon (a distinct tone) on pause and resume so you know 
 
 | Whenever | Then |
 |---|---|
-| `UserStartedSpeaking` while a speech holds the floor (**Barge-in**) | Interrupt it if playing; return it to the queue if it had not started; stop playback |
+| `UserStartedSpeaking` while a speech holds the floor (**Barge-in**) | Interrupt it if playing; withdraw it (reason `interrupted`) if it had not started; stop playback and drop audio still in flight |
+| `UserSpoke` (**Drop stale speech**) | Withdraw every speech still waiting (reason `user-spoke`): it was written before what the user just said. Agents see each in their inbox (`speech-withdrawn` with its text) and decide whether to say any of it again. Noise and coughs produce no `UserSpoke`, so they leave the queue alone |
 | `FloorGranted` (**Play on grant**) | Ask the render side to synthesize and play it |
 | `ListeningPaused`, `ListeningResumed` (**Earcon**) | Play the matching tone |
 | `ParticipantLeft` (**Withdraw on leave**) | Withdraw everything it had queued |
