@@ -1,10 +1,15 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/BSpeak.Application/BSpeak.Application.csproj" />
+    <Project Path="src/BSpeak.Cli/BSpeak.Cli.csproj" />
     <Project Path="src/BSpeak.Domain/BSpeak.Domain.csproj" />
+    <Project Path="src/BSpeak.Host/BSpeak.Host.csproj" />
+    <Project Path="src/BSpeak.Infrastructure.Audio/BSpeak.Infrastructure.Audio.csproj" />
+    <Project Path="src/BSpeak.Infrastructure.Speech/BSpeak.Infrastructure.Speech.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/BSpeak.Application.Tests/BSpeak.Application.Tests.csproj" />
     <Project Path="tests/BSpeak.Domain.Tests/BSpeak.Domain.Tests.csproj" />
+    <Project Path="tests/BSpeak.Infrastructure.Tests/BSpeak.Infrastructure.Tests.csproj" />
   </Folder>
 </Solution>

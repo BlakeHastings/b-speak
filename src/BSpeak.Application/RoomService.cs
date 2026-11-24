@@ -37,9 +37,20 @@ public sealed class RoomService
 
     // ================= agent commands
 
-    public JoinResult Join(string name) => Run(() =>
+    /// <summary>Names handed out when an agent joins without choosing one. Chosen to sound distinct from each other.</summary>
+    public static readonly IReadOnlyList<string> NamePool = ["Atlas", "Nova", "Juno", "Felix", "Iris", "Orion", "Hazel", "Milo", "Sage", "Quinn"];
+
+    /// <param name="name">The name to join as, or null to take the first free name from <see cref="NamePool"/>.</param>
+    public JoinResult Join(string? name) => Run(() =>
     {
-        var p = _room.Join(name, _clock.Now);
+        Participant p;
+        if (!string.IsNullOrWhiteSpace(name)) p = _room.Join(name, _clock.Now);
+        else
+        {
+            var free = NamePool.FirstOrDefault(n => _room.Participants.All(x => !Words.SoundsAlike(x.Name, n)))
+                ?? throw new DomainViolation("name-pool-empty", "Every pooled name is taken. Join with --name.");
+            p = _room.Join(free, _clock.Now);
+        }
         return new JoinResult(p.Name, p.Voice, _room.UtteranceCount);
     });
 
@@ -160,6 +171,19 @@ public sealed class RoomService
     {
         if (!_speeches.TryGetValue(speechId, out var speech) || speech.State != SpeechState.Playing) return;
         speech.Finish();
+        _room.ReleaseFloor(speechId, _clock.Now);
+    });
+
+    /// <summary>
+    /// Text to speech or the device failed. A speech that never started is withdrawn; one that was playing
+    /// counts as interrupted, so the agent learns how much was heard. Either way the floor is released.
+    /// </summary>
+    public void PlaybackFailed(string speechId) => Run(() =>
+    {
+        if (!_speeches.TryGetValue(speechId, out var speech)) return;
+        if (speech.State == SpeechState.Queued) speech.Withdraw(speech.Participant, WithdrawReason.PlaybackFailed);
+        else if (speech.State == SpeechState.Playing) speech.Interrupt();
+        else return;
         _room.ReleaseFloor(speechId, _clock.Now);
     });
 

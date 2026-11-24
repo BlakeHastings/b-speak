@@ -1,0 +1,26 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\BSpeak.Host\BSpeak.Host.csproj" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>bspeak</AssemblyName>
+    <RootNamespace>BSpeak.Cli</RootNamespace>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <!-- KokoroSharp copies its voices and espeak-ng folders into the build output only; carry them into publish too. -->
+  <Target Name="CopyKokoroAssetsOnPublish" AfterTargets="Publish">
+    <ItemGroup>
+      <KokoroVoices Include="$(OutDir)voices\**\*" />
+      <KokoroEspeak Include="$(OutDir)espeak\**\*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(KokoroVoices)" DestinationFiles="@(KokoroVoices->'$(PublishDir)voices\%(RecursiveDir)%(Filename)%(Extension)')" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="@(KokoroEspeak)" DestinationFiles="@(KokoroEspeak->'$(PublishDir)espeak\%(RecursiveDir)%(Filename)%(Extension)')" SkipUnchangedFiles="true" />
+  </Target>
+
+</Project>

@@ -1,0 +1,123 @@
+using System.Collections.Concurrent;
+using System.Threading.Channels;
+using BSpeak.Application;
+using Microsoft.Extensions.Logging;
+
+namespace BSpeak.Infrastructure.Audio;
+
+/// <summary>
+/// The render side of <see cref="IPlayback"/>: synthesizes a granted speech sentence by sentence, resamples
+/// it to the device rate and queues it on the render ring, with markers that report back to the room when
+/// playback really started, when each sentence was heard, and when the last sample played.
+/// </summary>
+public sealed class AudioPlayback(RenderDevice render, ITextToSpeech tts, ILogger logger) : IPlayback
+{
+    private abstract record Work;
+    private sealed record PlayWork(PlaybackRequest Request, CancellationToken Token) : Work;
+    private sealed record EarconWork(Earcon Earcon) : Work;
+
+    private readonly Channel<Work> _work = Channel.CreateUnbounded<Work>(new UnboundedChannelOptions { SingleReader = true });
+    private readonly ConcurrentDictionary<string, CancellationTokenSource> _active = new();
+    private RoomService? _room;
+
+    /// <summary>Connects the room to report progress to. Required before the first play.</summary>
+    public void Attach(RoomService room) => _room = room;
+
+    public void Play(PlaybackRequest request)
+    {
+        var cts = new CancellationTokenSource();
+        _active[request.SpeechId] = cts;
+        _work.Writer.TryWrite(new PlayWork(request, cts.Token));
+    }
+
+    public void Stop(string speechId)
+    {
+        if (_active.TryRemove(speechId, out var cts)) cts.Cancel();
+        render.Flush();
+    }
+
+    public void PlayEarcon(Earcon earcon) => _work.Writer.TryWrite(new EarconWork(earcon));
+
+    public async Task RunAsync(CancellationToken ct)
+    {
+        try
+        {
+            await foreach (var work in _work.Reader.ReadAllAsync(ct))
+            {
+                switch (work)
+                {
+                    case EarconWork e:
+                        render.Write(Earcons.Render(e.Earcon, render.SampleRate));
+                        render.EndOfData();
+                        break;
+                    case PlayWork p:
+                        await SpeakAsync(p.Request, p.Token);
+                        break;
+                }
+            }
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { }
+    }
+
+    private async Task SpeakAsync(PlaybackRequest request, CancellationToken ct)
+    {
+        var room = _room ?? throw new InvalidOperationException("AudioPlayback is not attached to a room.");
+        var id = request.SpeechId;
+        var started = false;
+        try
+        {
+            for (var i = 0; i < request.Sentences.Count; i++)
+            {
+                var pcm = await tts.SynthesizeAsync(request.Sentences[i], request.Voice, ct);
+                var samples = Resampling.Resample(pcm, tts.SampleRate, render.SampleRate);
+                if (ct.IsCancellationRequested) return;
+                var start = render.WritePosition;
+                render.Write(samples);
+                if (!started)
+                {
+                    started = true;
+                    render.MarkAt(start + 1, () => room.PlaybackStarted(id));
+                }
+                var index = i;
+                render.MarkAt(render.WritePosition, () => room.SentencePlayed(id, index));
+            }
+            if (ct.IsCancellationRequested) return;
+            if (!started) { room.PlaybackStarted(id); room.PlaybackDrained(id); return; }
+            render.MarkAt(render.WritePosition, () => room.PlaybackDrained(id));
+            render.EndOfData();
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "[tts] could not play speech {Id}", id);
+            room.PlaybackFailed(id);
+        }
+        finally
+        {
+            _active.TryRemove(id, out _);
+        }
+    }
+}
+
+/// <summary>Short two-note tones: falling for "stopped listening", rising for "listening again".</summary>
+public static class Earcons
+{
+    public static float[] Render(Earcon earcon, int sampleRate)
+    {
+        var (first, second) = earcon == Earcon.ListeningPaused ? (880.0, 587.0) : (587.0, 880.0);
+        return [.. Tone(first, 0.09, sampleRate), .. new float[sampleRate / 40], .. Tone(second, 0.12, sampleRate)];
+    }
+
+    private static float[] Tone(double hz, double seconds, int rate)
+    {
+        var n = (int)(seconds * rate);
+        var samples = new float[n];
+        var fade = Math.Max(1, rate / 200);
+        for (var i = 0; i < n; i++)
+        {
+            var envelope = Math.Min(1.0, Math.Min(i, n - 1 - i) / (double)fade);
+            samples[i] = (float)(0.18 * envelope * Math.Sin(2 * Math.PI * hz * i / rate));
+        }
+        return samples;
+    }
+}

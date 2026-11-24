@@ -1,0 +1,191 @@
+using System.Text.Json;
+using BSpeak.Application;
+using BSpeak.Domain;
+using BSpeak.Infrastructure.Audio;
+using BSpeak.Infrastructure.Speech;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Hosting.Server;
+using Microsoft.AspNetCore.Hosting.Server.Features;
+using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
+
+namespace BSpeak.Host;
+
+public sealed record JoinRequest(string? Name);
+public sealed record UtteranceRequest(string Text);
+public sealed record SpeechRequest(string As, string Text, int? ReplyTo);
+public sealed record ListeningRequest(bool On, string? As);
+public sealed record ModeRequest(ListeningMode Mode, string? WakeWord);
+public sealed record ErrorBody(string Code, string Message);
+public sealed record EventView(long Seq, DateTimeOffset At, string Type, string Stream, JsonElement Data);
+public sealed record HostStatus(int Pid, DateTimeOffset StartedAt, string Profile, AudioStatus Audio, RoomStatus Room);
+
+/// <summary>
+/// The resident host: one per machine. Owns the room, the audio runtime and a localhost HTTP API that
+/// the CLI (and later an MCP server) talks to. Mirrors the CLI's resources: <c>bspeak speech post</c>
+/// is <c>POST /api/speech</c>.
+/// </summary>
+public static class HostApp
+{
+    /// <summary>Longest a single HTTP wait is held open. The CLI repeats waits to cover longer timeouts.</summary>
+    public static readonly TimeSpan MaxWait = TimeSpan.FromSeconds(50);
+
+    public static async Task<int> RunAsync(bool forceNoAudio, int? port, bool quiet, CancellationToken ct = default)
+    {
+        var config = Profile.LoadConfig();
+        if (forceNoAudio) config.Audio.Enabled = false;
+
+        if (Profile.ReadHostInfo() is { } existing && await IsAliveAsync(existing.Port))
+        {
+            Console.Error.WriteLine($"b-speak is already running (pid {existing.Pid}, port {existing.Port}).");
+            return 1;
+        }
+
+        var builder = WebApplication.CreateSlimBuilder();
+        builder.Logging.ClearProviders();
+        if (!quiet) builder.Logging.AddSimpleConsole(o => { o.SingleLine = true; o.TimestampFormat = "HH:mm:ss "; });
+        builder.Logging.AddProvider(new FileLoggerProvider(Profile.LogPath));
+        builder.Logging.AddFilter("Microsoft", LogLevel.Warning);
+        builder.WebHost.UseUrls($"http://127.0.0.1:{port ?? config.Port}");
+        builder.Services.ConfigureHttpJsonOptions(o =>
+        {
+            o.SerializerOptions.PropertyNamingPolicy = Profile.Json.PropertyNamingPolicy;
+            o.SerializerOptions.Encoder = Profile.Json.Encoder;
+            foreach (var c in Profile.Json.Converters) o.SerializerOptions.Converters.Add(c);
+        });
+
+        var app = builder.Build();
+        var logger = app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("bspeak");
+        var router = new PlaybackRouter();
+        var fallback = new SimulatedPlayback(logger);
+        var log = new InMemoryEventLog();
+        var room = new RoomService(config.ToRoomSettings(), config.ToSpeechRules(), new SystemClock(), log, router);
+        fallback.Attach(room);
+        var audio = new AudioRuntime(config, room, router, fallback, logger);
+        var startedAt = DateTimeOffset.Now;
+
+        app.Use(async (ctx, next) =>
+        {
+            try { await next(ctx); }
+            catch (DomainViolation v) { await Error(ctx, 422, v.Code, v.Message); }
+            catch (NotFoundException n) { await Error(ctx, 404, n.Code, n.Message); }
+            catch (BadHttpRequestException b) { await Error(ctx, 400, "bad-request", b.Message); }
+            catch (JsonException j) { await Error(ctx, 400, "bad-request", j.Message); }
+            catch (OperationCanceledException) when (ctx.RequestAborted.IsCancellationRequested) { }
+        });
+
+        MapApi(app, room, log, audio, config, startedAt);
+
+        using var stopping = CancellationTokenSource.CreateLinkedTokenSource(ct, app.Lifetime.ApplicationStopping);
+        await app.StartAsync(ct);
+        var actualPort = new Uri(app.Services.GetRequiredService<IServer>().Features.Get<IServerAddressesFeature>()!.Addresses.First()).Port;
+        Profile.WriteHostInfo(new HostInfo(actualPort, Environment.ProcessId, startedAt));
+        logger.LogInformation("[host] b-speak listening on http://127.0.0.1:{Port} (pid {Pid}); log at {Log}", actualPort, Environment.ProcessId, Profile.LogPath);
+
+        var audioTask = audio.RunAsync(stopping.Token);
+        var tickTask = TickAsync(room, stopping.Token);
+        try { await app.WaitForShutdownAsync(ct); }
+        finally
+        {
+            stopping.Cancel();
+            await Task.WhenAll(audioTask, tickTask).WaitAsync(TimeSpan.FromSeconds(5)).ContinueWith(_ => { });
+            Profile.ClearHostInfo(Environment.ProcessId);
+        }
+        return 0;
+    }
+
+    private static async Task TickAsync(RoomService room, CancellationToken ct)
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(100));
+        try { while (await timer.WaitForNextTickAsync(ct)) room.Tick(); }
+        catch (OperationCanceledException) { }
+    }
+
+    private static void MapApi(WebApplication app, RoomService room, IEventLog log, AudioRuntime audio, BSpeakConfig config, DateTimeOffset startedAt)
+    {
+        var api = app.MapGroup("/api");
+
+        api.MapGet("/health", () => Results.Ok(new { ok = true, pid = Environment.ProcessId }));
+
+        api.MapGet("/host", () => new HostStatus(Environment.ProcessId, startedAt, Profile.Home, audio.Status, room.Status()));
+        api.MapDelete("/host", (IHostApplicationLifetime life) =>
+        {
+            _ = Task.Run(async () => { await Task.Delay(200); life.StopApplication(); });
+            return Results.Ok(new { stopping = true });
+        });
+
+        api.MapGet("/brief", (string? @as) => Results.Text(Brief.Render(room.Status(), @as), "text/markdown; charset=utf-8"));
+
+        api.MapPost("/participants", (JoinRequest? body) => room.Join(body?.Name));
+        api.MapGet("/participants", () => room.Status().Participants);
+        api.MapDelete("/participants/{name}", (string name) => { room.Leave(name); return Results.Ok(new { left = name }); });
+
+        api.MapGet("/utterances", async (string @as, int? after, bool? forYou, double? wait, HttpContext ctx) =>
+        {
+            if (wait is not > 0) return new UtteranceBatch(room.ListUtterances(@as, after ?? 0, forYou ?? false), TimedOut: false);
+            return await room.WaitForUtterancesAsync(@as, after ?? 0, forYou ?? false, Clamp(wait.Value), ctx.RequestAborted);
+        });
+        api.MapPost("/utterances", (UtteranceRequest body) =>
+        {
+            var before = room.Status().Utterances;
+            room.SpeechOnset();
+            room.Utterance(body.Text);
+            var status = room.Status();
+            return Results.Ok(new { delivered = status.Utterances > before, utteranceId = status.Utterances > before ? status.Utterances : (int?)null, listening = status.Listening });
+        });
+
+        api.MapPost("/speech", async (SpeechRequest body, double? wait, HttpContext ctx) =>
+        {
+            var speech = room.PostSpeech(body.As, body.Text, body.ReplyTo);
+            if (wait is not > 0) return speech;
+            return await room.WaitForSpeechAsync(speech.Id, Clamp(wait.Value), ctx.RequestAborted) ?? room.GetSpeech(speech.Id);
+        });
+        api.MapGet("/speech", (string? @as) => room.ListSpeech(@as));
+        api.MapGet("/speech/{id}", async (string id, double? wait, HttpContext ctx) =>
+            wait is > 0 ? await room.WaitForSpeechAsync(id, Clamp(wait.Value), ctx.RequestAborted) ?? room.GetSpeech(id) : room.GetSpeech(id));
+        api.MapDelete("/speech/{id}", (string id, string @as) => { room.WithdrawSpeech(@as, id); return room.GetSpeech(id); });
+
+        api.MapGet("/listening", () => Listening(room));
+        api.MapPut("/listening", (ListeningRequest body) => { room.SetListening(body.On, body.As); return Listening(room); });
+        api.MapPatch("/listening", (ModeRequest body) => { room.SetMode(body.Mode, body.WakeWord); return Listening(room); });
+
+        api.MapGet("/events", async (long? after, double? wait, HttpContext ctx) =>
+        {
+            var from = after ?? 0;
+            if (wait is > 0 && log.Head <= from)
+                await Task.WhenAny(log.Changed, Task.Delay(Clamp(wait.Value), ctx.RequestAborted));
+            return log.After(from).Select(e => new EventView(e.Seq, e.At, e.Event.Type, e.Event.Stream,
+                JsonSerializer.SerializeToElement(e.Event, e.Event.GetType(), Profile.Json)));
+        });
+
+        api.MapGet("/devices", () => PortAudioSystem.List());
+        api.MapGet("/models", () => new ModelStore(Profile.ModelsDir, config.Stt, config.Tts, app.Logger).List());
+    }
+
+    private static object Listening(RoomService room)
+    {
+        var s = room.Status();
+        return new { listening = s.Listening, mode = s.Mode, wakeWord = s.WakeWord };
+    }
+
+    private static TimeSpan Clamp(double seconds) => TimeSpan.FromSeconds(Math.Min(seconds, MaxWait.TotalSeconds));
+
+    private static Task Error(HttpContext ctx, int status, string code, string message)
+    {
+        ctx.Response.StatusCode = status;
+        return ctx.Response.WriteAsJsonAsync(new { error = new ErrorBody(code, message) }, Profile.Json);
+    }
+
+    public static async Task<bool> IsAliveAsync(int port)
+    {
+        try
+        {
+            using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(2) };
+            return (await http.GetAsync($"http://127.0.0.1:{port}/api/health")).IsSuccessStatusCode;
+        }
+        catch { return false; }
+    }
+}

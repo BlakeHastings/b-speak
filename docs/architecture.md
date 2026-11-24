@@ -1,6 +1,6 @@
 # Architecture
 
-Status: the domain (`BSpeak.Domain`) and application core (`BSpeak.Application`) are built and tested. The host, CLI and audio infrastructure are not built yet. The visual version of this document is `docs/model.html`.
+Status: v1 is built: domain, application core, host, CLI, local and remote speech engines, and headset audio. Install with `scripts/install.sh`. The visual version of this document is `docs/model.html`.
 
 ## What b-speak is
 
@@ -186,19 +186,21 @@ Each capability is a port with swappable implementations, chosen in config.
 
 ## CLI and HTTP API
 
-Commands are `bspeak <resource> <verb>` with the HTTP verbs `get`, `list`, `post`, `put`, `patch` and `delete`, mirroring `/api` on the host. All commands print JSON. Exit codes: 0 ok, 1 rejected by a rule (the output names the rule), 2 usage, 3 wait timed out, 4 not found, 5 host unavailable.
+Commands are `bspeak <resource> <verb>` with the HTTP verbs `get`, `list`, `post`, `put`, `patch` and `delete`, mirroring `/api` on the host. All commands print JSON. Exit codes: 0 ok, 1 rejected by a rule (the output names the rule), 2 usage, 3 wait timed out, 4 not found, 5 host unavailable. Brief prints Markdown text instead of JSON. Waits are long polls: the HTTP API holds a request open for up to 50 seconds (`?wait=<seconds>`), and the CLI repeats it until its own `--timeout`.
 
 | Resource | CLI verbs | Notes |
 |---|---|---|
 | brief | `get` | The voice rules, room etiquette, the current participants and listening state. The agent reads this first |
-| participant | `post --name`, `list`, `delete` | Join, see who is in the room, leave |
+| participant | `post [--name]`, `list`, `delete` | Join (without a name the host picks a distinct one), see who is in the room, leave |
 | utterance | `list [--after <id>] [--for-you] [--wait] [--timeout]` | What the user said, with `addressedTo`, `focus` and `forYou`. `--for-you` skips utterances meant for others |
 | speech | `post <text> [--reply-to] [--wait]`, `get`, `list`, `delete` | Say something; `--wait` returns when it finished or was interrupted; `delete` withdraws a queued speech |
 | listening | `get`, `put on\|off`, `patch --mode` | The toggle and the mode |
 | event | `list [--after] [--wait]` | The raw event log |
-| model | `list`, `pull` | Local model files |
-| provider, device | `get`, `list`, `put` | Config |
-| host | `get` (status), `delete` (stop) | `bspeak serve` runs it in the foreground |
+| model | `list`, `pull` | Local model files. Runs in the CLI itself, so you see download progress |
+| device, config | `device list`, `config get` | Devices and settings. Edit `~/.bspeak/config.json` to change providers, models, voices and devices, then restart the host |
+| host | `get` (status), `delete` (stop) | `bspeak serve [--no-audio]` runs it in the foreground |
+| utterance | `post "<text>"` | Type as if you had said it: for testing, or without a mic |
+| selftest | `[--play]` | Speaks a sentence and transcribes it back through the real engines, no mic needed |
 
 ## The agent loop
 
@@ -225,7 +227,7 @@ Short, judgment only. Draft points:
 
 ## Not built yet
 
-- The host process, the CLI, and the audio infrastructure (capture, VAD, STT, TTS, playback, model pull).
+- `provider put` and `device put`. Edit config.json for now.
 - A dedicated wake-word model (openWakeWord-style) to save running speech to text on everything. The transcript-match version of `wake-word` mode is built.
 - Acoustic echo cancellation for room speakers (v1 assumes a headset). See the WebRTC APM notes in the `dotnet-local-voice` skill.
 - MCP server adapter.

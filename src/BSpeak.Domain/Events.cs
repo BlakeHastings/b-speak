@@ -17,7 +17,14 @@ public enum DiscardReason
     Control,
 }
 
-public enum WithdrawReason { Withdrawn, ParticipantLeft }
+public enum WithdrawReason
+{
+    Withdrawn,
+    ParticipantLeft,
+
+    /// <summary>Text to speech or the audio device failed before any of it played.</summary>
+    PlaybackFailed,
+}
 
 // Room
 public sealed record ParticipantJoined(string Name, string Voice) : DomainEvent { public override string Stream => "room"; }

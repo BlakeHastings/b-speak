@@ -202,6 +202,31 @@ public sealed class RoomServiceTests
     }
 
     [Fact]
+    public void Joining_without_a_name_takes_a_free_distinct_one()
+    {
+        var h = new Harness();
+        h.Room.Join("Nora");
+        var first = h.Room.Join(null);
+        var second = h.Room.Join(null);
+        Assert.Equal("Atlas", first.Name);
+        Assert.Equal("Juno", second.Name);   // Nova sounds like Nora
+    }
+
+    [Fact]
+    public void Failed_playback_frees_the_floor()
+    {
+        var h = new Harness();
+        h.Room.Join("Atlas");
+        h.Room.PostSpeech("Atlas", "One.", null);
+        h.Room.PostSpeech("Atlas", "Two.", null);
+        h.Room.PlaybackFailed("s1");
+        Assert.Equal(SpeechState.Withdrawn, h.Room.GetSpeech("s1").State);
+        h.Clock.Advance(1);
+        h.Room.Tick();
+        Assert.Equal("play s2", h.Playback.Calls.Last());
+    }
+
+    [Fact]
     public void Unknown_speech_is_not_found()
     {
         var h = new Harness();

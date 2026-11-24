@@ -33,6 +33,30 @@ public interface IPlayback
     void PlayEarcon(Earcon earcon);
 }
 
+/// <summary>Speech to text for one finished utterance: 16 kHz mono float PCM in, text out.</summary>
+public interface ISpeechToText
+{
+    Task<string> TranscribeAsync(float[] audio16k, CancellationToken ct = default);
+}
+
+/// <summary>Text to speech for one sentence in a given voice: mono float PCM at <see cref="SampleRate"/>.</summary>
+public interface ITextToSpeech
+{
+    int SampleRate { get; }
+
+    Task<float[]> SynthesizeAsync(string text, string voice, CancellationToken ct = default);
+}
+
+/// <summary>Voice activity detection over 512-sample windows of 16 kHz audio (32 ms each).</summary>
+public interface IVoiceActivityDetector
+{
+    const int WindowSize = 512;
+
+    float Probability(float[] window);
+
+    void Reset();
+}
+
 public sealed record StoredEvent(long Seq, DateTimeOffset At, DomainEvent Event);
 
 /// <summary>Append-only log of accepted events. Every reader keeps its own position.</summary>
